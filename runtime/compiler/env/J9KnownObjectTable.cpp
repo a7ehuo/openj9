@@ -63,7 +63,7 @@ J9::KnownObjectTable::isNull(Index index)
 
 
 TR::KnownObjectTable::Index
-J9::KnownObjectTable::getIndex(uintptr_t objectPointer)
+J9::KnownObjectTable::getOrCreateIndex(uintptr_t objectPointer)
    {
    if (objectPointer == 0)
       return 0; // Special Index value for NULL
@@ -72,9 +72,9 @@ J9::KnownObjectTable::getIndex(uintptr_t objectPointer)
 #if defined(J9VM_OPT_JITSERVER)
    if (self()->comp()->isOutOfProcessCompilation())
       {
-      TR_ASSERT_FATAL(false, "It is not safe to call getIndex() at the server. The object pointer could have become stale at the client.");
+      TR_ASSERT_FATAL(false, "It is not safe to call getOrCreateIndex() at the server. The object pointer could have become stale at the client.");
       auto stream = TR::CompilationInfo::getStream();
-      stream->write(JITServer::MessageType::KnownObjectTable_getIndex, objectPointer);
+      stream->write(JITServer::MessageType::KnownObjectTable_getOrCreateIndex, objectPointer);
       auto recv = stream->read<TR::KnownObjectTable::Index, uintptr_t *>();
 
       TR::KnownObjectTable::Index index = std::get<0>(recv);
@@ -94,7 +94,7 @@ J9::KnownObjectTable::getIndex(uintptr_t objectPointer)
 #endif /* defined(J9VM_OPT_JITSERVER) */
       {
       TR_J9VMBase *fej9 = (TR_J9VMBase *)(self()->fe());
-      TR_ASSERT(fej9->haveAccess(), "Must haveAccess in J9::KnownObjectTable::getIndex");
+      TR_ASSERT(fej9->haveAccess(), "Must haveAccess in J9::KnownObjectTable::getOrCreateIndex");
 
       // Search for existing matching entry
       //
@@ -115,9 +115,9 @@ J9::KnownObjectTable::getIndex(uintptr_t objectPointer)
 
 
 TR::KnownObjectTable::Index
-J9::KnownObjectTable::getIndex(uintptr_t objectPointer, bool isArrayWithConstantElements)
+J9::KnownObjectTable::getOrCreateIndex(uintptr_t objectPointer, bool isArrayWithConstantElements)
    {
-   TR::KnownObjectTable::Index index = self()->getIndex(objectPointer);
+   TR::KnownObjectTable::Index index = self()->getOrCreateIndex(objectPointer);
    if (isArrayWithConstantElements)
       {
       self()->addArrayWithConstantElements(index);
@@ -127,14 +127,14 @@ J9::KnownObjectTable::getIndex(uintptr_t objectPointer, bool isArrayWithConstant
 
 
 TR::KnownObjectTable::Index
-J9::KnownObjectTable::getIndexAt(uintptr_t *objectReferenceLocation)
+J9::KnownObjectTable::getOrCreateIndexAt(uintptr_t *objectReferenceLocation)
    {
    TR::KnownObjectTable::Index result = UNKNOWN;
 #if defined(J9VM_OPT_JITSERVER)
    if (self()->comp()->isOutOfProcessCompilation())
       {
       auto stream = TR::CompilationInfo::getStream();
-      stream->write(JITServer::MessageType::KnownObjectTable_getIndexAt, objectReferenceLocation);
+      stream->write(JITServer::MessageType::KnownObjectTable_getOrCreateIndexAt, objectReferenceLocation);
       result = std::get<0>(stream->read<TR::KnownObjectTable::Index>());
 
       updateKnownObjectTableAtServer(result, objectReferenceLocation);
@@ -142,17 +142,17 @@ J9::KnownObjectTable::getIndexAt(uintptr_t *objectReferenceLocation)
    else
 #endif /* defined(J9VM_OPT_JITSERVER) */
       {
-      TR::VMAccessCriticalSection getIndexAtCriticalSection(self()->comp());
+      TR::VMAccessCriticalSection getOrCreateIndexAtCriticalSection(self()->comp());
       uintptr_t objectPointer = *objectReferenceLocation; // Note: object references held as uintptr_t must never be compressed refs
-      result = self()->getIndex(objectPointer);
+      result = self()->getOrCreateIndex(objectPointer);
       }
    return result;
    }
 
 TR::KnownObjectTable::Index
-J9::KnownObjectTable::getIndexAt(uintptr_t *objectReferenceLocation, bool isArrayWithConstantElements)
+J9::KnownObjectTable::getOrCreateIndexAt(uintptr_t *objectReferenceLocation, bool isArrayWithConstantElements)
    {
-   Index result = self()->getIndexAt(objectReferenceLocation);
+   Index result = self()->getOrCreateIndexAt(objectReferenceLocation);
    if (isArrayWithConstantElements)
       self()->addArrayWithConstantElements(result);
    return result;
@@ -341,14 +341,76 @@ J9::KnownObjectTable::dumpObjectTo(TR::FILE *file, Index i, const char *fieldNam
       }
    }
 
+
+#if defined(J9VM_OPT_JITSERVER)
+void
+J9::KnownObjectTable::getKnownObjectTableDumpInfo(std::vector<TR_KnownObjectTableDumpInfo> &knotDumpInfoList)
+   {
+   TR_ASSERT_FATAL(!self()->comp()->isOutOfProcessCompilation(), "getKnownObjectTableDumpInfo() can not be executed at the server.");
+
+   TR_J9VMBase *j9fe = (TR_J9VMBase*)self()->fe();
+   J9MemoryManagerFunctions * mmf = jitConfig->javaVM->memoryManagerFunctions;
+   TR::KnownObjectTable::Index endIndex = self()->getEndIndex();
+   TR::VMAccessCriticalSection j9KnownObjectTableDumpToCriticalSection(j9fe,
+                                                                        TR::VMAccessCriticalSection::tryToAcquireVMAccess,
+                                                                        self()->comp());
+   if (j9KnownObjectTableDumpToCriticalSection.hasVMAccess())
+      {
+      for (uint32_t i = 0; i < endIndex; i++)
+         {
+         uintptr_t *ref = self()->getPointerLocation(i);
+         int32_t len = 0;
+         char    *className = j9fe->getClassNameChars(j9fe->getObjectClass(*ref), len);
+         int32_t hashCode = mmf->j9gc_objaccess_getObjectHashCode(jitConfig->javaVM, (J9Object*)(*ref));
+
+         knotDumpInfoList.push_back(TR_KnownObjectTableDumpInfo(ref, *ref, hashCode, len, className));
+         }
+      }
+   }
+#endif /* defined(J9VM_OPT_JITSERVER) */
+
+
 void
 J9::KnownObjectTable::dumpTo(TR::FILE *file, TR::Compilation *comp)
    {
+   TR::KnownObjectTable::Index endIndex = self()->getEndIndex();
 #if defined(J9VM_OPT_JITSERVER)
-   // JITServer KOT TODO
    if (self()->comp()->isOutOfProcessCompilation())
-      return;
+      {
+      auto stream = TR::CompilationInfo::getStream();
+      stream->write(JITServer::MessageType::KnownObjectTable_getKnownObjectTableDumpInfo, JITServer::Void());
+
+      auto recv = stream->read<std::vector<TR_KnownObjectTableDumpInfo>>();
+      auto knotDumpInfoList = std::get<0>(recv);
+
+      // TODOs: size is 1
+      // isNULL
+      //
+      uint32_t numOfEntries = knotDumpInfoList.size();
+      TR_ASSERT_FATAL((numOfEntries == endIndex), "The client table size %u is different from the server table size %u", numOfEntries, endIndex);
+
+      trfprintf(file, "<knownObjectTable size=\"%d\"> // ", numOfEntries);
+      int32_t pointerLen = trfprintf(file, "%p", this);
+      trfprintf(file, "\n  %-6s   %-*s   %-*s %-8s   Class\n", "id", pointerLen, "JNI Ref", pointerLen, "Address", "Hash");
+
+      for (uint32_t i = 0; i < numOfEntries; i++)
+         {
+         trfprintf(file, "  obj%-3d", i);
+         if (self()->isNull(i)) //TODO
+            trfprintf(file, "   %*s   NULL\n", pointerLen, "");
+         else
+            {
+            trfprintf(file, "   %p   %p %8x   %.*s\n",
+                  knotDumpInfoList[i].ref, knotDumpInfoList[i].objectPointer,
+                  knotDumpInfoList[i].hashCode, knotDumpInfoList[i].len,
+                  knotDumpInfoList[i].className.c_str());
+            }
+         }
+      trfprintf(file, "</knownObjectTable>\n");
+      }
+   else
 #endif /* defined(J9VM_OPT_JITSERVER) */
+      {
    TR_J9VMBase *j9fe = (TR_J9VMBase*)self()->fe();
    J9MemoryManagerFunctions * mmf = jitConfig->javaVM->memoryManagerFunctions;
    TR::VMAccessCriticalSection j9KnownObjectTableDumpToCriticalSection(j9fe,
@@ -357,10 +419,10 @@ J9::KnownObjectTable::dumpTo(TR::FILE *file, TR::Compilation *comp)
 
    if (j9KnownObjectTableDumpToCriticalSection.hasVMAccess())
       {
-      trfprintf(file, "<knownObjectTable size=\"%d\"> // ", self()->getEndIndex());
+      trfprintf(file, "<knownObjectTable size=\"%d\"> // ", endIndex);
       int32_t pointerLen = trfprintf(file, "%p", this);
       trfprintf(file, "\n  %-6s   %-*s   %-*s %-8s   Class\n", "id", pointerLen, "JNI Ref", pointerLen, "Address", "Hash");
-      for (Index i = 0; i < self()->getEndIndex(); i++)
+      for (Index i = 0; i < endIndex; i++)
          {
          trfprintf(file, "  obj%-3d", i);
          if (self()->isNull(i))
@@ -386,9 +448,9 @@ J9::KnownObjectTable::dumpTo(TR::FILE *file, TR::Compilation *comp)
 
          // Collect field info and determine which objects are reachable from other objects
          //
-         TR_BitVector reachable(self()->getEndIndex(), comp->trMemory(), stackAlloc, notGrowable);
-         TR_VMFieldsInfo **fieldsInfoByIndex = (TR_VMFieldsInfo**)alloca(self()->getEndIndex() * sizeof(TR_VMFieldsInfo*));
-         for (i = 1; i < self()->getEndIndex(); i++)
+         TR_BitVector reachable(endIndex, comp->trMemory(), stackAlloc, notGrowable);
+         TR_VMFieldsInfo **fieldsInfoByIndex = (TR_VMFieldsInfo**)alloca(endIndex * sizeof(TR_VMFieldsInfo*));
+         for (i = 1; i < endIndex; i++)
             {
             uintptr_t    object = self()->getPointer(i);
             J9Class      *clazz  = (J9Class*)j9fe->getObjectClass(object);
@@ -417,8 +479,8 @@ J9::KnownObjectTable::dumpTo(TR::FILE *file, TR::Compilation *comp)
 
          // At the top level, walk objects not reachable from other objects
          //
-         TR_BitVector visited(self()->getEndIndex(), comp->trMemory(), stackAlloc, notGrowable);
-         for (i = 1; i < self()->getEndIndex(); i++)
+         TR_BitVector visited(endIndex, comp->trMemory(), stackAlloc, notGrowable);
+         for (i = 1; i < endIndex; i++)
             {
             if (!reachable.isSet(i) && !visited.isSet(i))
                self()->dumpObjectTo(file, i, "", "", comp, visited, fieldsInfoByIndex, 0);
@@ -431,6 +493,7 @@ J9::KnownObjectTable::dumpTo(TR::FILE *file, TR::Compilation *comp)
       }
    else
       {
-      trfprintf(file, "<knownObjectTable size=\"%d\"/> // unable to acquire VM access to print table contents\n", self()->getEndIndex());
+      trfprintf(file, "<knownObjectTable size=\"%d\"/> // unable to acquire VM access to print table contents\n", endIndex);
+      }
       }
    }
