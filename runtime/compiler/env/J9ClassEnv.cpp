@@ -561,6 +561,8 @@ static void addEntryForFieldImpl(TR_VMField *field, TR::TypeLayoutBuilder &tlb, 
       if (trace)
          traceMsg(comp, "type layout definingClass %p field: %s, field offset: %d offsetBase %d\n", definingClass, fieldName, field->offset, offsetBase);
       tlb.add(TR::TypeLayoutEntry(dataType, offset, fieldName, isVolatile, isPrivate, isFinal, signature));
+      printf("                 %s:%s %s @offset %d (=%d+%d+%d)\n",
+            fieldName, signature, field->signature, offset, offsetBase, field->offset, TR::Compiler->om.objectHeaderSizeInBytes());
       }
    }
 
@@ -580,10 +582,13 @@ J9::ClassEnv::enumerateFields(TR::Region &region, TR_OpaqueClassBlock *opaqueCla
    TR_VMFieldsInfo fieldsInfo(comp, reinterpret_cast<J9Class*>(opaqueClazz), 1, stackAlloc);
    ListIterator<TR_VMField> iter(fieldsInfo.getFields());
    TR::TypeLayoutBuilder tlb(region);
+   printf("%s: >>> **************************\n", __FUNCTION__);
    for (TR_VMField *field = iter.getFirst(); field; field = iter.getNext())
       {
+      printf("   TR_VMField[] %s:%s offset %d\n", ->name, field->signature, field->offset);
       addEntryForField(field, tlb, region, opaqueClazz, comp);
       }
+   printf("%s: <<< **************************\n", __FUNCTION__);
    return tlb.build();
    }
 
@@ -759,6 +764,32 @@ J9::ClassEnv::isValueTypeClass(TR_OpaqueClassBlock *clazz)
 #endif /* defined(J9VM_OPT_JITSERVER) */
    J9Class *j9class = reinterpret_cast<J9Class*>(clazz);
    return J9_IS_J9CLASS_VALUETYPE(j9class);
+   }
+
+bool
+J9::ClassEnv::isValueTypeClassFlattened(TR_OpaqueClassBlock *clazz)
+   {
+#if defined(J9VM_OPT_JITSERVER)
+   if (auto stream = TR::CompilationInfo::getStream())
+      {
+      uintptr_t classFlags = 0;
+      JITServerHelpers::getAndCacheRAMClassInfo((J9Class *)clazz, TR::compInfoPT->getClientData(), stream, JITServerHelpers::CLASSINFO_CLASS_FLAGS, (void *)&classFlags);
+#ifdef DEBUG
+      stream->write(JITServer::MessageType::ClassEnv_classFlagsValue, clazz);
+      uintptr_t classFlagsRemote = std::get<0>(stream->read<uintptr_t>());
+      // Check that class flags from remote call is equal to the cached ones
+      classFlags = classFlags & J9ClassIsFlattened;
+      classFlagsRemote = classFlagsRemote & J9ClassIsFlattened;
+      TR_ASSERT(classFlags == classFlagsRemote, "remote call class flags is not equal to cached class flags");
+#endif
+      return classFlags & J9ClassIsFlattened;
+      }
+#endif /* defined(J9VM_OPT_JITSERVER) */
+   if (clazz && J9_IS_J9CLASS_FLATTENED(reinterpret_cast<J9Class*>(clazz)))
+      {
+      printf("isValueTypeClassFlattened true clazz %p\n", clazz);
+      }
+   return (clazz && J9_IS_J9CLASS_FLATTENED(reinterpret_cast<J9Class*>(clazz)));
    }
 
 bool
