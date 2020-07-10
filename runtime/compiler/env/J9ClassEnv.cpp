@@ -561,8 +561,7 @@ static void addEntryForFieldImpl(TR_VMField *field, TR::TypeLayoutBuilder &tlb, 
       if (trace)
          traceMsg(comp, "type layout definingClass %p field: %s, field offset: %d offsetBase %d\n", definingClass, fieldName, field->offset, offsetBase);
       tlb.add(TR::TypeLayoutEntry(dataType, offset, fieldName, isVolatile, isPrivate, isFinal, signature));
-      printf("                 %s:%s %s @offset %d (=%d+%d+%d)\n",
-            fieldName, signature, field->signature, offset, offsetBase, field->offset, TR::Compiler->om.objectHeaderSizeInBytes());
+      printf("   TypeLayoutEntry: %s:%s @offset %d (=%d+%d+%d)\n", fieldName, field->signature, offset, offsetBase, field->offset, TR::Compiler->om.objectHeaderSizeInBytes());
       }
    }
 
@@ -585,10 +584,10 @@ J9::ClassEnv::enumerateFields(TR::Region &region, TR_OpaqueClassBlock *opaqueCla
    printf("%s: >>> **************************\n", __FUNCTION__);
    for (TR_VMField *field = iter.getFirst(); field; field = iter.getNext())
       {
-      printf("   TR_VMField[] %s:%s offset %d\n", ->name, field->signature, field->offset);
+      printf("   TR_VMField[] %s:%s offset %d\n", field->name, field->signature, field->offset);
       addEntryForField(field, tlb, region, opaqueClazz, comp);
       }
-   printf("%s: <<< **************************\n", __FUNCTION__);
+   printf("%s: <<< **************************\n\n", __FUNCTION__);
    return tlb.build();
    }
 

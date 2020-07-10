@@ -29,7 +29,7 @@
 			<variation>-Xint</variation>
 			<variation>-Xint -Xgcpolicy:nogc -XX:ValueTypeFlatteningThreshold=99999 -XX:+EnableArrayFlattening</variation>
 			<variation>-Xint -Xgcpolicy:optthruput -Xnocompactgc -XX:ValueTypeFlatteningThreshold=99999  -XX:+EnableArrayFlattening</variation>
-			<variation>-Xjit:count=0</variation>
+			<variation>-Xjit:count=0 -XX:ValueTypeFlatteningThreshold=99999</variation>
 			<variation>-Xjit:count=1,disableAsyncCompilation</variation>
 		</variations>
 		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \

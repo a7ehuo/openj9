@@ -24,11 +24,13 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 	<test>
 		<testCaseName>cmdLineTester_flattenedvaluetypeddrtests</testCaseName>
 		<variations>
-			<variation>NoOptions</variation>
+			<variation>-Xint</variation>
+			<variation>-Xjit:count=0</variation>
+			<variation>-Xjit:count=1,disableAsyncCompilation</variation>
 		</variations>
 		<command>
 			perl $(JVM_TEST_ROOT)$(D)TestConfig$(D)scripts$(D)tools$(D)sysvcleanup.pl all ; \
-			$(JAVA_COMMAND) $(JVM_OPTIONS) -Xint -XX:+EnableValhalla -Xverify:none \
+			$(JAVA_COMMAND) $(JVM_OPTIONS) -XX:+EnableValhalla -Xverify:none \
 			--add-opens java.base/jdk.internal.misc=ALL-UNNAMED \
 			-DRESJAR=$(CMDLINETESTER_RESJAR) \
 			-DEXE=$(SQ)$(JAVA_COMMAND) $(JVM_OPTIONS)$(SQ) \
@@ -62,11 +64,13 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0 WITH Classpath-excepti
 	<test>
 		<testCaseName>cmdLineTester_unflattenedvaluetypeddrtests</testCaseName>
 		<variations>
-			<variation>-XX:ValueTypeFlatteningThreshold=1</variation>
+         <variation>-Xint -XX:ValueTypeFlatteningThreshold=1</variation>
+         <variation>-Xjit:count=0 -XX:ValueTypeFlatteningThreshold=1</variation>
+			<variation>-Xjit:count=1,disableAsyncCompilation -XX:ValueTypeFlatteningThreshold=1</variation>
 		</variations>
 		<command>
 			perl $(JVM_TEST_ROOT)$(D)TestConfig$(D)scripts$(D)tools$(D)sysvcleanup.pl all ; \
-			$(JAVA_COMMAND) $(JVM_OPTIONS) -Xint -XX:+EnableValhalla -Xverify:none \
+			$(JAVA_COMMAND) $(JVM_OPTIONS) -XX:+EnableValhalla -Xverify:none \
 			--add-opens java.base/jdk.internal.misc=ALL-UNNAMED \
 			-DRESJAR=$(CMDLINETESTER_RESJAR) \
 			-DEXE=$(SQ)$(JAVA_COMMAND) $(JVM_OPTIONS)$(SQ) \
