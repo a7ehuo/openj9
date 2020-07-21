@@ -26,14 +26,12 @@
 		<testCaseName>ValueTypeTests</testCaseName>
 		<variations>
 			<variation>NoOptions</variation>
-			<variation>-Xint</variation>
-			<variation>-Xint -Xgcpolicy:nogc -XX:ValueTypeFlatteningThreshold=99999 -XX:+EnableArrayFlattening</variation>
-			<variation>-Xint -Xgcpolicy:optthruput -Xnocompactgc -XX:ValueTypeFlatteningThreshold=99999  -XX:+EnableArrayFlattening</variation>
-			<variation>-Xjit:count=0 -XX:ValueTypeFlatteningThreshold=99999</variation>
-			<variation>-Xjit:count=1,disableAsyncCompilation</variation>
+			<variation>-Xgcpolicy:nogc -XX:ValueTypeFlatteningThreshold=99999 -XX:+EnableArrayFlattening</variation>
+			<variation>-Xgcpolicy:optthruput -Xnocompactgc -XX:ValueTypeFlatteningThreshold=99999 -XX:+EnableArrayFlattening</variation>
 		</variations>
 		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
 		-Xverify:none \
+		-Xint \
 		--add-opens java.base/jdk.internal.misc=ALL-UNNAMED \
 		-XX:+EnableValhalla \
 		-cp $(Q)$(LIB_DIR)$(D)asm-all.jar$(P)$(RESOURCES_DIR)$(P)$(TESTNG)$(P)$(TEST_RESROOT)$(D)ValhallaTests.jar$(Q) \
@@ -57,13 +55,16 @@
 	</test>
 	<test>
 		<testCaseName>ValueTypeTestsJIT</testCaseName>
-		<variations>
-			<!--
-			  - -Xjit:count=0 temporarily disabled due to intermittent failures
-			  -
-			  -	<variation>-Xjit:count=0</variation>
-			  -->
-			<variation>-Xjit:count=1,disableAsyncCompilation</variation>
+      <variations>
+         <variation>-Xjit:count=0 -XX:ValueTypeFlatteningThreshold=99999 -Xshareclasses:none -Xnoaot -Xgcpolicy:nogc</variation>
+         <variation>-Xjit:count=0 -XX:ValueTypeFlatteningThreshold=99999 -Xshareclasses:none -Xnoaot -Xgcpolicy:optthruput -Xnocompactgc</variation>
+         <variation>-Xjit:count=1,disableAsyncCompilation -XX:ValueTypeFlatteningThreshold=99999 -Xshareclasses:none -Xnoaot -Xgcpolicy:nogc</variation>
+         <variation>-Xjit:count=1,disableAsyncCompilation -XX:ValueTypeFlatteningThreshold=99999 -Xshareclasses:none -Xnoaot -Xgcpolicy:optthruput -Xnocompactgc</variation>
+         <variation>'-Xjit:count=1,disableAsyncCompilation,limit={ContainerC.getc()QNestedB;},verbose,{*}(traceFull,traceIlGen,log=/root/home/ahuo/logs/valhalla/logLoadInstance)' -XX:ValueTypeFlatteningThreshold=99999 -Xshareclasses:none -Xnoaot -Xgcpolicy:nogc</variation>
+         <variation>'-Xjit:count=0,limit={ContainerC.getc()QNestedB;},verbose,vlog=/root/home/ahuo/logs/valhalla/vlogLoadInstance,{*}(traceFull,traceILGen,log=/root/home/ahuo/logs/valhalla/logLoadinstance)' -XX:ValueTypeFlatteningThreshold=99999 -Xshareclasses:none -Xnoaot -Xgcpolicy:nogc</variation>
+         <variation>'-Xjit:count=0,limit={AssortedRefWithLongAlignment.setpoint(QPoint2D;)V},verbose,vlog=/root/home/ahuo/logs/valhalla/vlogStoreInstance,{*}(traceFull,traceIlGen,log=/root/home/ahuo/logs/valhalla/logStoreInstance)' -XX:ValueTypeFlatteningThreshold=99999 -Xshareclasses:none -Xnoaot -Xgcpolicy:nogc</variation>
+         <variation>'-Xjit:count=0,limit={FlattenedLine2D.withen(QPoint2D;)LFlattenedLine2D;},verbose,{*}(traceFull,traceILGen,log=/root/home/ahuo/logs/valhalla/logWithfield)' -XX:ValueTypeFlatteningThreshold=99999 -Xshareclasses:none -Xnoaot -Xgcpolicy:nogc</variation>
+         <variation>'-Xjit:count=1,disableAsyncCompilation,limit={AssortedValueWithLongAlignment.withpoint(QPoint2D;)LAssortedValueWithLongAlignment;},verbose,{*}(traceFull,traceIlGen,log=/root/home/ahuo/logs/valhalla/logWithfield)' -XX:ValueTypeFlatteningThreshold=99999 -Xshareclasses:none -Xnoaot -Xgcpolicy:nogc</variation>
 		</variations>
 		<command>$(JAVA_COMMAND) $(JVM_OPTIONS) \
 		-Xverify:none \

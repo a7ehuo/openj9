@@ -501,6 +501,7 @@ public class ValueTypeGenerator extends ClassLoader {
 
 	private static void generateSetter(ClassWriter cw, String[] nameAndSigValue, String className) {
 		boolean doubleDetected = false;
+      //System.out.println("\ngenerateSetter set" + nameAndSigValue[0] + "(" + nameAndSigValue[1] + ")V");
 		MethodVisitor mv = cw.visitMethod(ACC_PUBLIC, "set" + nameAndSigValue[0], "(" + nameAndSigValue[1] + ")V", null, null);
 		mv.visitCode();
 		mv.visitVarInsn(ALOAD, 0);

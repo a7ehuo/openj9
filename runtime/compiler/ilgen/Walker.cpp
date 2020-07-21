@@ -127,6 +127,12 @@
 #define JSR292_forGenericInvoke    "forGenericInvoke"
 #define JSR292_forGenericInvokeSig "(Ljava/lang/invoke/MethodType;Z)Ljava/lang/invoke/MethodHandle;"
 
+// TR_EnableRuntimeFlattenFieldGetfieldHelper
+// TR_EnableRuntimeFlattenFieldPutfieldHelper
+// TR_EnableRuntimeFlattenFieldWithfieldHelper
+
+//#define LEO_WITHFIELD 1
+#define MY_WITHFIELD 1
 
 static void printStack(TR::Compilation *comp, TR_Stack<TR::Node*> *stack, const char *message)
    {
@@ -1932,6 +1938,7 @@ TR_J9ByteCodeIlGenerator::loadConstantValueIfPossible(TR::Node *topNode, uintptr
             comp()->signature()));
       }
 
+   printf("\nUnresolved %s encountered for %s bytecode instruction for %s\n", refType, bytecodeName, comp()->signature());
    comp()->failCompilation<TR::UnsupportedValueTypeOperation>("Unresolved %s encountered for %s bytecode instruction", refType, bytecodeName);
    }
 
@@ -5061,11 +5068,37 @@ TR_J9ByteCodeIlGenerator::loadAuto(TR::DataType type, int32_t slot, bool isAdjun
    push(load);
    }
 
+static bool isFieldResovled(TR::Compilation *comp, TR_ResolvedJ9Method * owningMethod, int32_t cpIndex, bool isStore)
+   {
+   uint32_t offset = 0;
+   TR::DataType type = TR::NoType;
+   bool isVolatile = true, isFinal = false, isPrivate = false, isUnresolvedInCP;
+   bool bResolved = owningMethod->fieldAttributes(comp, cpIndex, &offset, &type, &isVolatile, &isFinal,
+                                    &isPrivate, isStore, &isUnresolvedInCP, true /* needsAOTValidation */);
+   return bResolved;
+   }
+
 void
 TR_J9ByteCodeIlGenerator::loadInstance(int32_t cpIndex)
    {
    if (_generateReadBarriersForFieldWatch && comp()->compileRelocatableCode())
       comp()->failCompilation<J9::AOTNoSupportForAOTFailure>("NO support for AOT in field watch");
+
+   TR_ResolvedJ9Method * owningMethod = static_cast<TR_ResolvedJ9Method*>(_methodSymbol->getResolvedMethod());
+   if (TR::Compiler->om.areValueTypesEnabled() && owningMethod->isFieldQType(cpIndex))
+      {
+      if (!isFieldResovled(comp(), owningMethod, cpIndex, false))
+         {
+         abortForUnresolvedValueTypeOp("getfield", "field");
+         }
+      else if (owningMethod->isFieldFlattened(comp(), cpIndex, _methodSymbol->isStatic()))
+         {
+         TR::SymbolReference * symRef = symRefTab()->findOrCreateShadowSymbol(_methodSymbol, cpIndex, false);
+         return comp()->getOption(TR_UseFlattenedFieldRuntimeHelpers) ? loadInstance(symRef) : loadFlattenableInstance(cpIndex);
+         //return comp()->getOption(TR_UseFlattenedFieldRuntimeHelpers) ? loadFlattenableInstanceWithHelper(cpIndex) : loadFlattenableInstance(cpIndex);
+         }
+      }
+
    TR::SymbolReference * symRef = symRefTab()->findOrCreateShadowSymbol(_methodSymbol, cpIndex, false);
    loadInstance(symRef);
    }
@@ -5089,6 +5122,51 @@ TR_J9ByteCodeIlGenerator::loadInstance(TR::SymbolReference * symRef)
       }
 
    TR::Node * load, *dummyLoad;
+
+   //static char *enableRuntimeFlattenFieldGetfieldHelper = feGetEnv("TR_EnableRuntimeFlattenFieldGetfieldHelper");
+   //if (TR::Compiler->om.areValueTypesEnabled() && type == TR::Address && enableRuntimeFlattenFieldGetfieldHelper)
+   if (TR::Compiler->om.areValueTypesEnabled() && type == TR::Address && comp()->getOption(TR_UseFlattenedFieldRuntimeHelpers))
+      {
+      static bool runLeoLoadInstance = false;
+      if (!runLeoLoadInstance)
+         {
+         printf("\nTEST_VALHALLA LEO_LOADINSTANCE !!!!\n");
+         runLeoLoadInstance = true;
+         }
+
+      TR_ResolvedMethod *fieldOwningMethod = symRef->getOwningMethod(comp()); 
+      int32_t len = 0;
+      const char* const classNameOfField = fieldOwningMethod->classSignatureOfFieldOrStatic(symRef->getCPIndex(), len);
+      if (classNameOfField == NULL) { abortForUnresolvedValueTypeOp("getfield", "field"); }
+      auto* j9class = reinterpret_cast<J9Class *>(fej9()->getClassFromSignature(classNameOfField, len, fieldOwningMethod));
+      J9JavaVM* vm = fej9()->getJ9JITConfig()->javaVM;
+
+      // valueTypeClass will be NULL if it is unresolved.  Abort the compilation and
+      // track the failure with a static debug counter
+      if (j9class == NULL)
+         {
+         abortForUnresolvedValueTypeOp("getfield", "field");
+         }
+      else if (TR::Compiler->cls.isValueTypeClass(reinterpret_cast<TR_OpaqueClassBlock *>(j9class)))
+         {
+         printf("TEST_VALHALLA LEO_LOADINSTANCE isValueTypeClass %s\n", comp()->signature());
+         if (!address->isNonNull())
+            {
+            auto* nullchk = TR::Node::create(TR::PassThrough, 1, address);
+            nullchk = genNullCheck(nullchk);
+            genTreeTop(nullchk);
+            }
+         auto* j9ResolvedMethod = static_cast<TR_ResolvedJ9Method *>(_methodSymbol->getResolvedMethod());
+         auto* ramFieldRef = reinterpret_cast<J9RAMFieldRef*>(j9ResolvedMethod->cp()) + symRef->getCPIndex();
+         auto* ramFieldRefNode = TR::Node::aconst(reinterpret_cast<uintptr_t>(ramFieldRef));
+         auto* receiverNode = address;
+         auto* helperCallNode = TR::Node::createWithSymRef(TR::acall, 2, 2, receiverNode, ramFieldRefNode, comp()->getSymRefTab()->findOrCreateGetFlattenableFieldSymbolRef());
+         handleSideEffect(helperCallNode);
+         genTreeTop(helperCallNode);
+         push(helperCallNode);
+         return;
+         }
+      }
 
    TR::ILOpCodes op = _generateReadBarriersForFieldWatch ? comp()->il.opCodeForIndirectReadBarrier(type): comp()->il.opCodeForIndirectLoad(type);
    dummyLoad = load = TR::Node::createWithSymRef(op, 1, 1, address, symRef);
@@ -5158,6 +5236,186 @@ TR_J9ByteCodeIlGenerator::loadInstance(TR::SymbolReference * symRef)
       }
 
    push(dummyLoad);
+   }
+
+static void printSymRef(const char * prefixMsg, TR_J9VMBase *fej9, TR::Compilation *comp, TR::SymbolReference * symRef)
+   {
+   bool isStatic;
+   TR_ResolvedJ9Method * j9method = static_cast<TR_ResolvedJ9Method *>(symRef->getOwningMethod(comp));
+   TR_OpaqueClassBlock * containingClassFromCPIndex = j9method->definingClassFromCPFieldRef(comp, symRef->getCPIndex(), isStatic);
+   J9UTF8 *containingClassName = J9ROMCLASS_CLASSNAME(TR::Compiler->cls.romClassOf(containingClassFromCPIndex));
+
+   TR_OpaqueClassBlock * containingClass2 = j9method->containingClass();
+   J9UTF8 *containingClassName2 = J9ROMCLASS_CLASSNAME(TR::Compiler->cls.romClassOf(containingClass2));
+
+   int fieldClassNameLen;
+   const char *fieldClassChars = symRef->getOwningMethod(comp)->fieldSignatureChars(symRef->getCPIndex(), fieldClassNameLen);
+   TR_OpaqueClassBlock * fieldClass = fieldClassChars ?
+               fej9->getClassFromSignature(fieldClassChars, fieldClassNameLen, symRef->getOwningMethod(comp)) : NULL;
+
+   int32_t fieldNameLength;
+   const char * fieldName = j9method->fieldNameChars(symRef->getCPIndex(), fieldNameLength);
+   int32_t fieldSigLength;
+   const char * fieldSig = j9method->fieldSignatureChars(symRef->getCPIndex(), fieldSigLength);
+
+   int typeLen;
+   const char * typeName = symRef->getTypeSignature(typeLen);
+
+   printf("%s:\n   symRef %p containingClassFromCPIndex \"%.*s\" methodContainingClass \"%.*s\"\n   offset %d type %d %.*s cpIndex %d symbol %p \"%s\"\n",
+      prefixMsg, symRef,
+      containingClassName->length, containingClassName->data, containingClassName2->length, containingClassName2->data,
+      symRef->getOffset(), symRef->getSymbol()->getType().getDataType(), typeLen, typeName,
+      symRef->getCPIndex(), symRef->getSymbol(), symRef->getSymbol()->getName());
+   printf("   field \"%.*s:%.*s\" fieldClass \"%.*s\" owningMethod \"%.*s%.*s\"\n",
+      fieldNameLength, fieldName, fieldSigLength, fieldSig,
+      fieldClassNameLen, fieldClassChars,
+      j9method->nameLength(), j9method->nameChars(), j9method->signatureLength(), j9method->signatureChars());
+   }
+
+static void printField(const char * prefixMsg, TR_J9VMBase *fej9, TR::Compilation *comp,
+                              TR_ResolvedJ9Method *owningMethod, int32_t cpIndex)
+   {
+   bool isStatic = false;
+   TR_OpaqueClassBlock * containingClass = owningMethod->definingClassFromCPFieldRef(comp, cpIndex, isStatic);
+   J9UTF8 *containingClassName = J9ROMCLASS_CLASSNAME(TR::Compiler->cls.romClassOf(containingClass));
+
+   int fieldClassNameLen;
+   const char *fieldClassChars = owningMethod->fieldSignatureChars(cpIndex, fieldClassNameLen);
+   TR_OpaqueClassBlock * fieldClass = fieldClassChars ?
+               fej9->getClassFromSignature(fieldClassChars, fieldClassNameLen, owningMethod) : NULL;
+
+   int32_t fieldNameLength;
+   const char * fieldName = owningMethod->fieldNameChars(cpIndex, fieldNameLength);
+   int32_t fieldSigLength;
+   const char * fieldSig = owningMethod->fieldSignatureChars(cpIndex, fieldSigLength);
+
+   printf("%s: cpIndex %d field \"%.*s:%.*s\" fieldClass \"%.*s\" owningMethod \"%.*s%.*s\" containingClass %p \"%.*s\"\n",
+      prefixMsg, cpIndex,
+      fieldNameLength, fieldName, fieldSigLength, fieldSig,
+      fieldClassNameLen, fieldClassChars,
+      owningMethod->nameLength(), owningMethod->nameChars(), owningMethod->signatureLength(), owningMethod->signatureChars(),
+      containingClass, containingClassName->length, containingClassName->data);
+   }
+
+#if 0
+static void getTopLevelPrefixForFlattenedFields(TR_ResolvedJ9Method *owningMethod, char buf[], int32_t &prefixLen, int32_t cpIndex)
+   {
+   int32_t len;
+   const char * fieldNameChars = owningMethod->fieldNameChars(cpIndex, len);
+   strncpy(buf, fieldNameChars, len);
+   prefixLen = len;
+   buf[prefixLen] = '.';
+   prefixLen++;
+   buf[prefixLen] = '\0';
+   printf("%s: field \"%.*s\", prefix \"%.*s\"\n", __FUNCTION__, len, fieldNameChars, prefixLen, buf);
+   }
+
+static void getTopLevelPrefixForFlattenedFields(TR::SymbolReference *symRef, char buf[], int32_t &prefixLen)
+   {
+   int32_t len;
+   const char * fieldNameChars = symRef->getOwningMethod(TR::comp())->fieldNameChars(symRef->getCPIndex(), len);
+   strncpy(buf, fieldNameChars, len);
+   prefixLen = len;
+   buf[prefixLen] = '.';
+   prefixLen++;
+   buf[prefixLen] = '\0';
+   printf("%s: field \"%.*s\", prefix \"%.*s\"\n", __FUNCTION__, len, fieldNameChars, prefixLen, buf);
+   }
+#endif
+
+static char * getTopLevelPrefixForFlattenedFields(TR_ResolvedJ9Method *owningMethod, int32_t cpIndex, int32_t &prefixLen, TR::Region &region)
+   {
+   int32_t len;
+   const char * fieldNameChars = owningMethod->fieldNameChars(cpIndex, len);
+   prefixLen = len + 1; // for '.'
+
+   char * newName = new (region) char[len+2];
+   strncpy(newName, fieldNameChars, len);
+
+   newName[len] = '.';
+   newName[len+1] = '\0';
+
+   printf("%s: field len %d \"%.*s\", prefix len %d \"%s\"\n", __FUNCTION__, len, len, fieldNameChars, prefixLen, newName);
+   return newName;
+   }
+
+void
+TR_J9ByteCodeIlGenerator::loadFlattenableInstance(int32_t cpIndex)
+   {
+   static bool runMyLoadInstance = false;
+   if (!runMyLoadInstance)
+      {
+      printf("\nTEST_VALHALLA MY_LOADINSTANCE !!!!\n");
+      runMyLoadInstance = true;
+      }
+
+   TR_ResolvedJ9Method * owningMethod = static_cast<TR_ResolvedJ9Method*>(_methodSymbol->getResolvedMethod());
+
+   printField("loadInstance QType", fej9(), comp(), owningMethod, cpIndex);
+   int len;
+   const char * fieldClassChars = owningMethod->fieldSignatureChars(cpIndex, len);
+   TR_OpaqueClassBlock * fieldClass = fej9()->getClassFromSignature(fieldClassChars, len, owningMethod);
+
+   int32_t prefixLen = 0;
+   char * fieldNamePrefix = getTopLevelPrefixForFlattenedFields(owningMethod, cpIndex, prefixLen, comp()->trMemory()->currentStackRegion());
+
+   TR_OpaqueClassBlock * containingClass = owningMethod->definingClassFromCPFieldRef(comp(), cpIndex, _methodSymbol->isStatic());
+   const TR::TypeLayout * containingClassLayout = comp()->typeLayout(containingClass);
+   size_t fieldCount = containingClassLayout->count();
+   int flattenedFieldCount = 0;
+
+   TR::Node * address = pop();
+
+   TR::Node * passThruNode = TR::Node::create(TR::PassThrough, 1, address);
+   genTreeTop(genNullCheck(passThruNode));
+
+   loadClassObject(fieldClass);
+
+   for (size_t idx = 0; idx < fieldCount; idx++)
+      {
+      const TR::TypeLayoutEntry &fieldEntry = containingClassLayout->entry(idx);
+
+      if (!strncmp(fieldNamePrefix, fieldEntry._fieldname, prefixLen))
+         {
+         auto * fieldSymRef = comp()->getSymRefTab()->findOrFabricateShadowSymbol(containingClass,
+                                                                     fieldEntry._datatype,
+                                                                     fieldEntry._offset,
+                                                                     fieldEntry._isVolatile,
+                                                                     fieldEntry._isPrivate,
+                                                                     fieldEntry._isFinal,
+                                                                     fieldEntry._fieldname,
+                                                                     fieldEntry._typeSignature,
+                                                                     true /* isFlattenedValueType */
+                                                                     );
+
+         printSymRef("findOrFabricateShadowSymbol", fej9(), comp(), fieldSymRef);
+         printf("Matched TypeLayoutEntry[%d] field \"%s:%s\" offset %d type %d\n\n",
+               (int)idx, fieldEntry._fieldname, fieldEntry._typeSignature,
+               fieldEntry._offset, fieldEntry._datatype.getDataType());
+         TR_ASSERT_FATAL(fieldEntry._offset == fieldSymRef->getOffset(),
+               "(containingClassLayout->entry(%d)._offset %d != fieldSymRef->offset() %d)\n\n",
+                     idx, fieldEntry._offset, fieldSymRef->getOffset());
+
+         if (comp()->getOption(TR_TraceILGen))
+            {
+            traceMsg(comp(), "Load flattened field %s\n - field[%d] name %s type %d offset %d\n",
+                  comp()->getDebug()->getName(fieldSymRef), idx, fieldEntry._fieldname,
+                  fieldEntry._datatype.getDataType(), fieldEntry._offset);
+            }
+
+         push(address);
+         loadInstance(fieldSymRef);
+
+         flattenedFieldCount++;
+         }
+      }
+
+   TR::Node * newValueNode = genNodeAndPopChildren(TR::newvalue, flattenedFieldCount + 1, symRefTab()->findOrCreateNewValueSymbolRef(_methodSymbol));
+   newValueNode->setIdentityless(true);
+   genTreeTop(newValueNode);
+   push(newValueNode);
+   genFlush(0);
+   return;
    }
 
 void
@@ -6156,6 +6414,15 @@ TR_J9ByteCodeIlGenerator::genWithField(uint16_t fieldCpIndex)
       abortForUnresolvedValueTypeOp("withfield", "class");
       }
 
+   TR_ResolvedJ9Method * owningMethod = static_cast<TR_ResolvedJ9Method*>(_methodSymbol->getResolvedMethod());
+   if (owningMethod->isFieldQType(fieldCpIndex) && owningMethod->isFieldFlattened(comp(), fieldCpIndex, _methodSymbol->isStatic()))
+      {
+      return genFlattenableWithField(fieldCpIndex, valueClass);
+      //return comp()->getOption(TR_UseFlattenedFieldRuntimeHelpers) ?
+      //   genFlattenableWithFieldWithHelper(fieldCpIndex, newFieldValue, originalObject) :
+      //   genFlattenableWithField(fieldCpIndex, valueClass);
+      }
+
    bool isStore = false;
    TR::SymbolReference * symRef = symRefTab()->findOrCreateShadowSymbol(_methodSymbol, fieldCpIndex, isStore);
    if (symRef->isUnresolved())
@@ -6163,8 +6430,56 @@ TR_J9ByteCodeIlGenerator::genWithField(uint16_t fieldCpIndex)
       abortForUnresolvedValueTypeOp("withfield", "field");
       }
 
+   genWithField(symRef, valueClass);
+   }
+
+void
+TR_J9ByteCodeIlGenerator::genWithField(TR::SymbolReference * symRef, TR_OpaqueClassBlock * valueClass)
+   {
    TR::Node *newFieldValue = pop();
    TR::Node *originalObject = pop();
+
+#if LEO_WITHFIELD
+   static char * enableRuntimeFlattenFieldWithfieldHelper = feGetEnv("TR_EnableRuntimeFlattenFieldWithfieldHelper");
+   static bool runLeoWithField = false;
+   if (!runLeoWithField)
+      {
+      printf("\nTEST_VALHALLA LEO_WITHFIELD !!!!\n");
+      runLeoWithField = true;
+      }
+
+   TR_ResolvedMethod *fieldOwningMethod = symRef->getOwningMethod(comp()); 
+   int32_t len = 0;
+   const char* const classNameOfField = fieldOwningMethod->classSignatureOfFieldOrStatic(fieldCpIndex, len);
+   if (classNameOfField == NULL) { abortForUnresolvedValueTypeOp("withfield", "field"); }
+   auto* j9class = reinterpret_cast<J9Class *>(fej9()->getClassFromSignature(classNameOfField, len, fieldOwningMethod));
+   J9JavaVM* vm = fej9()->getJ9JITConfig()->javaVM;
+
+   // valueTypeClass will be NULL if it is unresolved.  Abort the compilation and
+   // track the failure with a static debug counter
+   if (j9class == NULL)
+      {
+      abortForUnresolvedValueTypeOp("withfield", "field");
+      }
+   else if (TR::Compiler->cls.isValueTypeClass(reinterpret_cast<TR_OpaqueClassBlock *>(j9class)))
+      {
+      printf("TEST_VALHALLA LEO_WITHFIELD isValueTypeClass %s\n", comp()->signature());
+      if (!originalObject->isNonNull())
+         {
+         auto* nullchk = TR::Node::create(TR::PassThrough, 1, originalObject);
+         nullchk = genNullCheck(nullchk);
+         genTreeTop(nullchk);
+         }
+      auto* j9ResolvedMethod = static_cast<TR_ResolvedJ9Method *>(_methodSymbol->getResolvedMethod());
+      auto* ramFieldRef = reinterpret_cast<J9RAMFieldRef*>(j9ResolvedMethod->cp()) + symRef->getCPIndex();
+      auto* ramFieldRefNode = TR::Node::aconst(reinterpret_cast<uintptr_t>(ramFieldRef));
+      auto* helperCallNode = TR::Node::createWithSymRef(TR::acall, 3, 3, newFieldValue, originalObject, ramFieldRefNode, comp()->getSymRefTab()->findOrCreateWithFlattenableFieldSymbolRef());
+      handleSideEffect(helperCallNode);
+      genTreeTop(helperCallNode);
+      push(helperCallNode);
+      return;
+      }
+#endif //LEO_WITHFIELD
 
    /*
     * Insert nullchk for the original object as requested by the JVM spec.
@@ -6204,6 +6519,194 @@ TR_J9ByteCodeIlGenerator::genWithField(uint16_t fieldCpIndex)
    genTreeTop(newValueNode);
    push(newValueNode);
    genFlush(0);
+   }
+
+static TR::SymbolReference * createLoadFieldSymRef(TR::Compilation * comp, TR_OpaqueClassBlock * fieldClass, const char * fieldname)
+   {
+   const TR::TypeLayout *fieldClassLayout = comp->typeLayout(fieldClass);
+   size_t fieldClassFieldCount = fieldClassLayout->count();
+
+   for (size_t idx = 0; idx < fieldClassFieldCount; idx++)
+      {
+      const TR::TypeLayoutEntry &fieldEntry = fieldClassLayout->entry(idx);
+      if (!strcmp(fieldname, fieldEntry._fieldname))
+         {
+         auto * fieldSymRef = comp->getSymRefTab()->findOrFabricateShadowSymbol(fieldClass,
+                                                                              fieldEntry._datatype,
+                                                                              fieldEntry._offset,
+                                                                              fieldEntry._isVolatile,
+                                                                              fieldEntry._isPrivate,
+                                                                              fieldEntry._isFinal,
+                                                                              fieldEntry._fieldname,
+                                                                              fieldEntry._typeSignature,
+                                                                              true /* isFlattenedValueType */
+                                                                              );
+
+         printf("createLoadFieldSymRef: Matched fieldname %s to TypeLayoutEntry[%d] \"%s:%s\" offset %d type %d\n\n",
+                     fieldname,  (int)idx, fieldEntry._fieldname, fieldEntry._typeSignature,
+                     fieldEntry._offset, fieldEntry._datatype.getDataType());
+         return fieldSymRef;
+         }
+      }
+
+   TR_ASSERT_FATAL(false, "Did not find the matching fieldname %s", fieldname);
+   return NULL;
+   }
+
+static char * removeTopLevelPrefixForFlattenedFields(const char * fieldName, uint32_t numCharactersToRemove, TR::Region &region)
+   {
+   uint32_t newStringLen = strlen(fieldName) - numCharactersToRemove; 
+
+   char * newName = new (region) char[newStringLen+1];
+
+   strncpy(newName, fieldName + numCharactersToRemove, newStringLen);
+   
+   newName[newStringLen] = '\0';
+
+   printf("removeTopLevelPrefixForFlattenedFields: fieldName %s newName %s newStringLen %u\n",
+         fieldName, newName, newStringLen);
+   return newName;
+   }
+
+void
+TR_J9ByteCodeIlGenerator::genFlattenableWithField(uint16_t fieldCpIndex, TR_OpaqueClassBlock * valueClass)
+   {
+#if MY_WITHFIELD
+   static bool runMyWithField = false;
+   if (!runMyWithField)
+      {
+      printf("\nTEST_VALHALLA MY_WITHFIELD !!!!\n");
+      runMyWithField = true;
+      }
+
+   TR_ResolvedJ9Method * owningMethod = static_cast<TR_ResolvedJ9Method*>(_methodSymbol->getResolvedMethod());
+
+//   if (owningMethod->isFieldQType(fieldCpIndex) &&
+//       owningMethod->isFieldFlattened(comp(), fieldCpIndex, _methodSymbol->isStatic()))
+      {
+      // TODO: perhaps we don't need this unresolved check since it's checked on the above
+      // Is the valueClass the containing class?
+      if (isFieldResovled(comp(), owningMethod, fieldCpIndex, false)) 
+         {
+         printField("genWithField QType", fej9(), comp(), owningMethod, fieldCpIndex);
+
+         TR::Node *newFieldValue = pop();
+         TR::Node *originalObject = pop();
+
+         int32_t prefixLen = 0;
+         char * fieldNamePrefix = getTopLevelPrefixForFlattenedFields(owningMethod, fieldCpIndex, prefixLen, comp()->trMemory()->currentStackRegion());
+
+         int len;
+         const char * fieldClassChars = owningMethod->fieldSignatureChars(fieldCpIndex, len);
+         TR_OpaqueClassBlock * fieldClass = fej9()->getClassFromSignature(fieldClassChars, len, owningMethod);
+
+         loadClassObject(valueClass);
+
+         const TR::TypeLayout *typeLayout = comp()->typeLayout(valueClass);
+         size_t fieldCount = typeLayout->count();
+
+         TR_OpaqueClassBlock * containingClass = owningMethod->definingClassFromCPFieldRef(comp(), fieldCpIndex, _methodSymbol->isStatic());
+         printf("owningMethod %p vs method() %p\n", owningMethod, method());
+         printf("containingClass %p vs valueClass %p\n", containingClass, valueClass);
+         
+         // check all the fields in the containing class
+         // min.x
+         // min.y
+         // max.x
+         // max.y
+         //
+         // fieldClass Vec3
+         // containingClass AABB
+         //
+         // ==> If the field value needs to be updated: "max.x" with prefix "max." 
+         //     ==> load the value from the newFieldValue
+         //      floadi Vec3.x
+         //          aload newMax
+         // ==> else
+         //     ==> load the value from the originalObject
+         //         floadi AABB.min.z
+         //             ==>aload aabb
+         //
+         /*
+          * Test array of FlattenedLine2D
+          * 
+          * value FlattenedLine2D {
+          * 	flattened Point2D st;
+          * 	flattened Point2D en;
+          * }
+          *
+          * FlattenedLine2D.withen(QPoint2D;)LFlattenedLine2D; 
+          * fieldClass = Point2D
+          * valueClass = FlattenedLine2D
+          * 
+          * FlattenedLine2D fieldEntry[]
+          * en.y
+          * en.x
+          * st.y
+          * st.x
+          */
+         for (size_t idx = 0; idx < fieldCount; idx++)
+         {
+         const TR::TypeLayoutEntry &fieldEntry = typeLayout->entry(idx);
+         // fieldNamePrefix = "en." 
+         if (!strncmp(fieldNamePrefix, fieldEntry._fieldname, prefixLen))
+            {
+            // en.x => x
+            // en.y => y
+            char * fieldNameRemovedTopLevelPrefix = removeTopLevelPrefixForFlattenedFields(fieldEntry._fieldname, prefixLen,
+                                                                                    comp()->trMemory()->currentStackRegion());
+
+            auto * newFieldValueSymRef = createLoadFieldSymRef(comp(), fieldClass, fieldNameRemovedTopLevelPrefix);
+            // Point2D.x
+            // Point2D.y
+            printSymRef("newFieldValueSymRef", fej9(), comp(), newFieldValueSymRef);
+            printf("Matched TypeLayoutEntry[%d] field \"%s:%s\" offset %d type %d\n\n",
+                  (int)idx, fieldEntry._fieldname, fieldEntry._typeSignature,
+                  fieldEntry._offset, fieldEntry._datatype.getDataType());
+
+            push(newFieldValue);
+            loadInstance(newFieldValueSymRef);
+            }
+         else
+            {
+            // st.x
+            // st.y
+            auto * fieldSymRef = comp()->getSymRefTab()->findOrFabricateShadowSymbol(valueClass,
+                                                                        fieldEntry._datatype,
+                                                                        fieldEntry._offset,
+                                                                        fieldEntry._isVolatile,
+                                                                        fieldEntry._isPrivate,
+                                                                        fieldEntry._isFinal,
+                                                                        fieldEntry._fieldname,
+                                                                        fieldEntry._typeSignature,
+                                                                        true /* isFlattenedValueType */
+                                                                        );
+            // FlattenedLine2D.st.x
+            // FlattenedLine2D.st.y
+            printSymRef("findOrFabricateShadowSymbol", fej9(), comp(), fieldSymRef);
+            printf("Matched TypeLayoutEntry[%d] field \"%s:%s\" offset %d type %d\n\n",
+                  (int)idx, fieldEntry._fieldname, fieldEntry._typeSignature,
+                  fieldEntry._offset, fieldEntry._datatype.getDataType());
+
+            push(originalObject);
+            loadInstance(fieldSymRef);
+            }
+         }
+
+         TR::Node *newValueNode = genNodeAndPopChildren(TR::newvalue, fieldCount+1, symRefTab()->findOrCreateNewValueSymbolRef(_methodSymbol));
+         newValueNode->setIdentityless(true);
+         genTreeTop(newValueNode);
+         push(newValueNode);
+         genFlush(0);
+
+         return;
+         }
+      else
+         {
+         abortForUnresolvedValueTypeOp("withfield", "field");
+         }
+      }
+#endif //MY_WITHFIELD
    }
 
 void
@@ -6659,7 +7162,27 @@ TR_J9ByteCodeIlGenerator::storeInstance(int32_t cpIndex)
    if (_generateWriteBarriersForFieldWatch && comp()->compileRelocatableCode())
       comp()->failCompilation<J9::AOTNoSupportForAOTFailure>("NO support for AOT in field watch");
 
+   TR_ResolvedJ9Method * owningMethod = static_cast<TR_ResolvedJ9Method*>(_methodSymbol->getResolvedMethod());
+   if (TR::Compiler->om.areValueTypesEnabled() && owningMethod->isFieldQType(cpIndex))
+      {
+      if (!isFieldResovled(comp(), owningMethod, cpIndex, false))
+         {
+         abortForUnresolvedValueTypeOp("putfield", "field");
+         }
+      else if (owningMethod->isFieldFlattened(comp(), cpIndex, _methodSymbol->isStatic()))
+         {
+         TR::SymbolReference * symRef = symRefTab()->findOrCreateShadowSymbol(_methodSymbol, cpIndex, false);
+         return comp()->getOption(TR_UseFlattenedFieldRuntimeHelpers) ? storeInstance(symRef) : storeFlattenableInstance(cpIndex);
+         //return comp()->getOption(TR_UseFlattenedFieldRuntimeHelpers) ? storeFlattenableInstanceWithHelper(cpIndex) : storeFlattenableInstance(cpIndex);
+         }
+      }
    TR::SymbolReference * symRef = symRefTab()->findOrCreateShadowSymbol(_methodSymbol, cpIndex, true);
+   storeInstance(symRef);
+   }
+
+void
+TR_J9ByteCodeIlGenerator::storeInstance(TR::SymbolReference * symRef)
+   {
    TR::Symbol * symbol = symRef->getSymbol();
    TR::DataType type = symbol->getDataType();
 
@@ -6668,6 +7191,47 @@ TR_J9ByteCodeIlGenerator::storeInstance(int32_t cpIndex)
 
    TR::Node * addressNode  = address;
    TR::Node * parentObject = address;
+
+   static char * enableRuntimeFlattenFieldPutfieldHelper = feGetEnv("TR_EnableRuntimeFlattenFieldPutfieldHelper");
+   if (type == TR::Address && TR::Compiler->om.areValueTypesEnabled() && enableRuntimeFlattenFieldPutfieldHelper)
+      {
+      static bool runLeoStoreInstance = false;
+      if (!runLeoStoreInstance)
+         {
+         printf("\nTEST_VALHALLA LEO_STOREINSTANCE !!!!\n");
+         runLeoStoreInstance = true;
+         }
+      TR_ResolvedMethod *fieldOwningMethod = symRef->getOwningMethod(comp()); 
+      int32_t len = 0;
+      const char* const classNameOfField = fieldOwningMethod->classSignatureOfFieldOrStatic(symRef->getCPIndex(), len);
+      if (classNameOfField == NULL) { abortForUnresolvedValueTypeOp("putfield", "field"); }
+      auto* j9class = reinterpret_cast<J9Class *>(fej9()->getClassFromSignature(classNameOfField, len, fieldOwningMethod));
+      J9JavaVM* vm = fej9()->getJ9JITConfig()->javaVM;
+
+      // valueTypeClass will be NULL if it is unresolved.  Abort the compilation and
+      // track the failure with a static debug counter
+      if (j9class == NULL)
+         {
+         abortForUnresolvedValueTypeOp("putfield", "field");
+         }
+      else if (TR::Compiler->cls.isValueTypeClass(reinterpret_cast<TR_OpaqueClassBlock *>(j9class)))
+         {
+         printf("TEST_VALHALLA LEO_STOREINSTANCE isValueTypeClass %s\n", comp()->signature());
+         if (!address->isNonNull())
+            {
+            auto* nullchk = TR::Node::create(TR::PassThrough, 1, address);
+            nullchk = genNullCheck(nullchk);
+            genTreeTop(nullchk);
+            }
+         auto* j9ResolvedMethod = static_cast<TR_ResolvedJ9Method *>(_methodSymbol->getResolvedMethod());
+         auto* ramFieldRef = reinterpret_cast<J9RAMFieldRef*>(j9ResolvedMethod->cp()) + symRef->getCPIndex();
+         auto* ramFieldRefNode = TR::Node::aconst(reinterpret_cast<uintptr_t>(ramFieldRef));
+         auto* helperCallNode = TR::Node::createWithSymRef(TR::acall, 3, 3, value, address, ramFieldRefNode, comp()->getSymRefTab()->findOrCreatePutFlattenableFieldSymbolRef());
+         handleSideEffect(helperCallNode);
+         genTreeTop(helperCallNode);
+         return;
+         }
+      }
 
    // code to handle volatiles moved to CodeGenPrep
    //
@@ -6789,6 +7353,73 @@ TR_J9ByteCodeIlGenerator::storeInstance(int32_t cpIndex)
          }
       else
          genTreeTop(node);
+      }
+   }
+
+void
+TR_J9ByteCodeIlGenerator::storeFlattenableInstance(int32_t cpIndex)
+   {
+   static bool runMyStoreInstance = false;
+   if (!runMyStoreInstance)
+      {
+      printf("\nTEST_VALHALLA MY_STOREINSTANCE !!!!\n");
+      runMyStoreInstance = true;
+      }
+
+   TR_ResolvedJ9Method * owningMethod = static_cast<TR_ResolvedJ9Method*>(_methodSymbol->getResolvedMethod());
+
+   printField("storeInstance QType", fej9(), comp(), owningMethod, cpIndex);
+
+   int32_t prefixLen = 0;
+   char * fieldNamePrefix = getTopLevelPrefixForFlattenedFields(owningMethod, cpIndex, prefixLen, comp()->trMemory()->currentStackRegion());
+
+   TR_OpaqueClassBlock * containingClass = owningMethod->definingClassFromCPFieldRef(comp(), cpIndex, _methodSymbol->isStatic());
+   const TR::TypeLayout *containingClassLayout = comp()->typeLayout(containingClass);
+   size_t fieldCount = containingClassLayout->count();
+
+   TR::Node * value = pop();
+   TR::Node * address = pop();
+
+   int len;
+   const char *fieldClassChars = owningMethod->fieldSignatureChars(cpIndex, len);
+   TR_OpaqueClassBlock * fieldClass = fej9()->getClassFromSignature(fieldClassChars, len, owningMethod);
+
+   for (size_t idx = 0; idx < fieldCount; idx++)
+      {
+      const TR::TypeLayoutEntry &fieldEntry = containingClassLayout->entry(idx);
+
+      if (!strncmp(fieldNamePrefix, fieldEntry._fieldname, prefixLen))
+         {
+         auto * fieldSymRef = comp()->getSymRefTab()->findOrFabricateShadowSymbol(containingClass,
+                                                                     fieldEntry._datatype,
+                                                                     fieldEntry._offset,
+                                                                     fieldEntry._isVolatile,
+                                                                     fieldEntry._isPrivate,
+                                                                     fieldEntry._isFinal,
+                                                                     fieldEntry._fieldname,
+                                                                     fieldEntry._typeSignature,
+                                                                     true /* isFlattenedValueType */
+                                                                     );
+
+         printSymRef("fieldSymRef", fej9(), comp(), fieldSymRef);
+         printf("Matched TypeLayoutEntry[%d] fieldNamePrefix %s \"%s:%s\" offset %d type %d\n\n",
+               (int)idx, fieldNamePrefix, fieldEntry._fieldname, fieldEntry._typeSignature,
+               fieldEntry._offset, fieldEntry._datatype.getDataType());
+         TR_ASSERT_FATAL(fieldEntry._offset == fieldSymRef->getOffset(), "(containingClassLayout->entry(%d)._offset %d != fieldSymRef->offset() %d)\n\n",
+                         idx, fieldEntry._offset, fieldSymRef->getOffset());
+
+         char * fieldNameRemovedTopLevelPrefix = removeTopLevelPrefixForFlattenedFields(fieldEntry._fieldname, prefixLen,
+                                                                                        comp()->trMemory()->currentStackRegion());
+
+         auto * loadFieldSymRef = createLoadFieldSymRef(comp(), fieldClass, fieldNameRemovedTopLevelPrefix);
+         printSymRef("loadFieldSymRef", fej9(), comp(), loadFieldSymRef);
+         
+         push(address);
+         push(value);
+
+         loadInstance(loadFieldSymRef);
+         storeInstance(fieldSymRef);
+         }
       }
    }
 

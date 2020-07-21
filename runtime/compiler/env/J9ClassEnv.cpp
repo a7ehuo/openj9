@@ -561,7 +561,8 @@ static void addEntryForFieldImpl(TR_VMField *field, TR::TypeLayoutBuilder &tlb, 
       if (trace)
          traceMsg(comp, "type layout definingClass %p field: %s, field offset: %d offsetBase %d\n", definingClass, fieldName, field->offset, offsetBase);
       tlb.add(TR::TypeLayoutEntry(dataType, offset, fieldName, isVolatile, isPrivate, isFinal, signature));
-      printf("   TypeLayoutEntry: %s:%s @offset %d (=%d+%d+%d)\n", fieldName, field->signature, offset, offsetBase, field->offset, TR::Compiler->om.objectHeaderSizeInBytes());
+      printf("                 %s:%s %s @offset %d (=%d+%d+%d)\n",
+            fieldName, signature, field->signature, offset, offsetBase, field->offset, TR::Compiler->om.objectHeaderSizeInBytes());
       }
    }
 

@@ -32,10 +32,8 @@ import java.util.ArrayList;
 import sun.misc.Unsafe;
 import org.testng.Assert;
 import static org.testng.Assert.*;
-import org.testng.AssertJUnit;
 import org.testng.annotations.Test;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.BeforeMethod;
 
 /*
  * Instructions to run this test:
@@ -2269,58 +2267,8 @@ public class ValueTypeTests {
 		assertNotNull(getA.invoke(getD.invoke(containerC)));
 		assertNotNull(getB.invoke(getD.invoke(containerC)));
 	}
-
-	@Test(priority=1)
-	static public void testCreateTypeLayoutEntry() throws Throwable {
-		/*
-		* value Point2D {
-		* 	int x;
-		* 	int y;
-		* }
-		*/
-		String pointFields[] = {"x:I", "y:I"};
-		point2DClass = ValueTypeGenerator.generateValueClass("Point2D", pointFields);
-
-		makePoint2D = lookup.findStatic(point2DClass, "makeValueGeneric", MethodType.methodType(Object.class, Object.class, Object.class));
-
-		int x = 0xFFEEFFEE;
-		int y = 0xAABBAABB;
-		int x2 = 0xCCDDCCDD;
-		int y2 = 0xAAFFAAFF;
-
-		Object st = makePoint2D.invoke(x, y);
-		Object en = makePoint2D.invoke(x2, y2);
-
-		/*
-		* value Line2D {
-		* 	Point2D st;
-		* 	Point2D en;
-		* }
-		*/
-		String lineFields[] = {"st:QPoint2D;:value", "en:QPoint2D;:value"};
-		line2DClass = ValueTypeGenerator.generateValueClass("Line2D", lineFields);
-
-		makeLine2D = lookup.findStatic(line2DClass, "makeValueGeneric", MethodType.methodType(Object.class, Object.class, Object.class));
-
-		Object l1 = makeLine2D.invoke(st, en);
-		Object l2 = makeLine2D.invoke(st, en);
-		Object l3 = makeLine2D.invoke(st, en);
-
-		/*
-		* value Triangle2D {
-		* 	QLine2D l1;
-		* 	QLine2D l2;
-		* 	QLine2D l3;
-		* }
-		*/
-		String fields[] = {"l1:QLine2D;:value", "l2:QLine2D;:value", "l3:QLine2D;:value"};
-		triangle2DClass = ValueTypeGenerator.generateValueClass("Triangle2D", fields);
-
-		makeTriangle2D = lookup.findStatic(triangle2DClass, "makeValueGeneric", MethodType.methodType(Object.class, Object.class, Object.class, Object.class));
-
-		Object triangle2D = makeTriangle2D.invoke(l1, l2, l3);
-	}
-
+	
+	
 	static MethodHandle generateGetter(Class<?> clazz, String fieldName, Class<?> fieldType) {
 		try {
 			return lookup.findVirtual(clazz, "get"+fieldName, MethodType.methodType(fieldType));

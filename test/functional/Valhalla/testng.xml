@@ -29,9 +29,9 @@
 	<test name="ValueTypeTests">
 		<classes>
 			<class name="org.openj9.test.lworld.ValueTypeTests">
+				<!--
 				<methods>
 					<include name="testCreateTypeLayoutEntry" />
-				<!--
 					<include name="testCreatePoint2D" />
 					<include name="testCreateLine2D" />
 					<include name="testCreateFlattenedLine2D" />
@@ -39,8 +39,8 @@
 					<include name="testCreateArrayPoint2D" />
 					<include name="testNullWritesOnNonNullableArrays" />
 					<include name="testCreateArrayTriangle2D" />
-				-->
 				</methods>
+				-->
 			</class>
 		</classes>
 	</test>
