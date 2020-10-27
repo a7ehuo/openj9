@@ -56,6 +56,8 @@
 #include "infra/BitVector.hpp"
 #include "infra/ILWalk.hpp"
 #include "infra/List.hpp"
+#include "optimizer/DataFlowAnalysis.hpp"
+#include "optimizer/StructuralAnalysis.hpp"
 #include "optimizer/Structure.hpp"
 #include "optimizer/TransformUtil.hpp"
 #include "ras/Delimiter.hpp"
@@ -1850,6 +1852,96 @@ J9::CodeGenerator::doInstructionSelection()
       self()->comp()->getDebug()->setupToDumpTreesAndInstructions("Performing Instruction Selection");
 
    self()->beginInstructionSelection();
+
+   auto comp = self()->comp();
+   auto trHeapMemory = self()->trHeapMemory();
+   auto trMemory = self()->trMemory();
+
+   if (!comp->getFlowGraph()->getStructure())
+      {
+      comp->getFlowGraph()->setStructure(TR_RegionAnalysis::getRegions(comp));
+      }
+
+      {
+      TR_BitVector *liveVars = NULL;
+      int32_t numLocals = 0;
+      TR::AutomaticSymbol *a;
+      ListIterator<TR::AutomaticSymbol> locals(&comp->getMethodSymbol()->getAutomaticList());
+      for (a = locals.getFirst(); a != NULL; a = locals.getNext())
+         {
+         // TODO-ahuo: copied from TR_GlobalLiveVariablesForGC
+         // Mark collected locals as initialized. We will reset this property for
+         // any locals that are live at the start of the method.
+         //
+         if (a->isCollectedReference() &&
+            (!comp->getOption(TR_MimicInterpreterFrameShape) ||
+             !comp->areSlotsSharedByRefAndNonRef() ||
+             a->isSlotSharedByRefAndNonRef()))
+               a->setInitializedReference();
+         ++numLocals;
+         }
+
+      if (comp->getOption(TR_EnableAggressiveLiveness))
+         {
+         TR::ParameterSymbol *p;
+         ListIterator<TR::ParameterSymbol> parms(&comp->getMethodSymbol()->getParameterList());
+         for (p = parms.getFirst(); p != NULL; p = parms.getNext())
+            ++numLocals;
+         }
+
+      const uint64_t MAX_BITVECTOR_MEMORY_USAGE = 1000000000;
+      uint64_t bitvectorMemoryUsage = numLocals * comp->getFlowGraph()->getNextNodeNumber();
+
+      if (
+          numLocals > 0 && (performTransformation(comp, "Performing liveness for CodeGen\n")))
+         {
+         // Perform liveness analysis
+         //
+         TR_Liveness liveLocals(comp, NULL, comp->getFlowGraph()->getStructure(),
+            false, NULL, false, comp->getOption(TR_EnableAggressiveLiveness));
+         if (comp->getVisitCount() > HIGH_VISIT_COUNT)
+            {
+            comp->resetVisitCounts(1);
+            }
+
+         for (TR::CFGNode *cfgNode = comp->getFlowGraph()->getFirstNode(); cfgNode; cfgNode = cfgNode->getNext())
+             {
+             TR::Block *block    = toBlock(cfgNode);
+             int32_t blockNum    = block->getNumber();
+             if (blockNum > 0 && liveLocals._blockAnalysisInfo[blockNum])
+                {
+                liveVars = new (trHeapMemory) TR_BitVector(numLocals, trMemory);
+                *liveVars = *liveLocals._blockAnalysisInfo[blockNum];
+                block->setLiveLocals(liveVars);
+                }
+             }
+
+         // Make sure the code generator knows there are live locals for blocks, and
+         // create a bit vector of the correct size for it.
+         //
+         liveVars = new (trHeapMemory) TR_BitVector(numLocals, trMemory);
+         self()->setLiveLocals(liveVars);
+         }
+
+         // TODO-ahuo: copied from TR_GlobalLiveVariablesForGC
+         // See if any collected reference locals are live at the start of the block.
+         // These will need to be initialized at method prologue.
+         //
+         liveVars = comp->getStartBlock()->getLiveLocals();
+         if (liveVars && !liveVars->isEmpty())
+            {
+            locals.reset();
+            for (a = locals.getFirst(); a != NULL; a = locals.getNext())
+               {
+               if (a->isCollectedReference() &&
+                  liveVars->get(a->getLiveLocalIndex()))
+                  {
+                  if (performTransformation(comp, "%sLocal #%d is live at the start of the method\n", OPT_DETAILS, a->getLiveLocalIndex()))
+                     a->setUninitializedReference();
+                  }
+               }
+            }
+      }
 
    {
    TR::StackMemoryRegion stackMemoryRegion(*self()->trMemory());
