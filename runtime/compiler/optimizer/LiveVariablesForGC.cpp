@@ -182,6 +182,9 @@ int32_t TR_GlobalLiveVariablesForGC::perform()
       return 0;
       }
 
+   cg()->setRunGlobalLiveVariablesForGC();
+   return 0;
+#if 0
    TR::StackMemoryRegion stackMemoryRegion(*trMemory());
 
    // Temporary until register maps are implemented - spill temps must be
@@ -285,6 +288,7 @@ int32_t TR_GlobalLiveVariablesForGC::perform()
       }
 
    return 10; // actual cost
+#endif
    }
 
 const char *

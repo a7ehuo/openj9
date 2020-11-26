@@ -56,6 +56,8 @@
 #include "infra/BitVector.hpp"
 #include "infra/ILWalk.hpp"
 #include "infra/List.hpp"
+#include "optimizer/DataFlowAnalysis.hpp"
+#include "optimizer/StructuralAnalysis.hpp"
 #include "optimizer/Structure.hpp"
 #include "optimizer/TransformUtil.hpp"
 #include "ras/Delimiter.hpp"
@@ -78,7 +80,8 @@ J9::CodeGenerator::CodeGenerator(TR::Compilation *comp) :
    _nodesSpineCheckedList(getTypedAllocator<TR::Node*>(comp->allocator())),
    _jniCallSites(getTypedAllocator<TR_Pair<TR_ResolvedMethod,TR::Instruction> *>(comp->allocator())),
    _monitorMapping(std::less<ncount_t>(), MonitorMapAllocator(comp->trMemory()->heapMemoryRegion())),
-   _dummyTempStorageRefNode(NULL)
+   _dummyTempStorageRefNode(NULL),
+   _runGlobalLiveVariablesForGC(false)
    {
    /**
     * Do not add CodeGenerator initialization logic here.
@@ -247,6 +250,8 @@ J9::CodeGenerator::fastpathAcmpHelper(TR::Node *node, TR::TreeTop *tt, const boo
          node->getFirstChild()->getGlobalIndex(), node->getSecondChild()->getGlobalIndex(), anchoredCallArg1TT->getNode()->getGlobalIndex(), anchoredCallArg2TT->getNode()->getGlobalIndex());
       }
 
+   // Need to rerun liveness analysis because the live locals for the split blocks might be updated after splitPostGRA.
+   //self()->setRerunLivenessAnalysis();
    // put non-helper call in its own block by block splitting at the
    // next treetop and then at the current one
    TR::Block* prevBlock = tt->getEnclosingBlock();
@@ -785,6 +790,14 @@ J9::CodeGenerator::preLowerTrees()
    _uncommonedNodes.init(64, true);
    }
 
+void
+J9::CodeGenerator::postLowerTrees()
+   {
+   OMR::CodeGeneratorConnector::postLowerTrees();
+   //if (self()->isRerunGlobalLiveVariablesForGC() && self()->getLiveLocals())
+   if (self()->isRunGlobalLiveVariablesForGC())
+      self()->runGlobalLiveVariablesForGC();
+   }
 
 void
 J9::CodeGenerator::lowerTreesPreTreeTopVisit(TR::TreeTop *tt, vcount_t visitCount)
@@ -1530,7 +1543,198 @@ J9::CodeGenerator::lowerTreeIfNeeded(
 
    }
 
+void
+J9::CodeGenerator::runGlobalLiveVariablesForGC()
+   {
+   auto comp = self()->comp();
+   auto trHeapMemory = self()->trHeapMemory();
+   auto trMemory = self()->trMemory();
 
+   if (!comp->getFlowGraph()->getStructure())
+      {
+      comp->getFlowGraph()->setStructure(TR_RegionAnalysis::getRegions(comp));
+      }
+
+   // Because only live locals are mapped for GC, there is normally no need to
+   // make sure locals are cleared to NULL during method prologue.
+   // However, we can have cases where GC-collected locals are live at the start
+   // of the method. These locals will have to be cleared to NULL during method
+   // prologue.
+   // This can happen because of the way we treat non-inlined jsrs.
+   //
+   int32_t numLocals = 0;
+   TR::AutomaticSymbol *p;
+   ListIterator<TR::AutomaticSymbol> locals(&comp->getMethodSymbol()->getAutomaticList());
+   for (p = locals.getFirst(); p != NULL; p = locals.getNext())
+      {
+      // Mark collected locals as initialized. We will reset this property for
+      // any locals that are live at the start of the method.
+      //
+      if (p->isCollectedReference() &&
+          (!comp->getOption(TR_MimicInterpreterFrameShape) ||
+           !comp->areSlotsSharedByRefAndNonRef() ||
+           p->isSlotSharedByRefAndNonRef()))
+         p->setInitializedReference();
+      ++numLocals;
+      }
+
+   if (comp->getOption(TR_EnableAggressiveLiveness))
+      {
+      TR::ParameterSymbol *pp;
+      ListIterator<TR::ParameterSymbol> parms(&comp->getMethodSymbol()->getParameterList());
+      for (pp = parms.getFirst(); pp != NULL; pp = parms.getNext())
+         ++numLocals;
+      }
+
+   // Nothing to do if there are no locals
+   //
+   if (numLocals == 0)
+      return;
+
+   TR_BitVector *liveVars = NULL;
+
+   if ((comp->getOption(TR_EnableOSR) && (comp->getHCRMode() == TR::osr || comp->getOption(TR_FullSpeedDebug)))
+       || !self()->getLiveLocals()) // under OSR existing live locals is likely computed without ignoring OSR uses
+      {
+      // Perform liveness analysis
+      //
+      bool ignoreOSRuses = false; // Used to be set to true but we cannot set this to true because a variable may not be live in compiled code but may still be needed (live) in the interpreter
+      /* for mimicInterpreterShape, because OSR points can extend the live range of autos
+       * autos sharing the same slot in interpreter might end up with overlapped
+       * live range if OSRUses are not ignored
+       */
+      if (comp->getOption(TR_MimicInterpreterFrameShape))
+         ignoreOSRuses = true;
+
+      TR_Liveness liveLocals(comp, NULL, comp->getFlowGraph()->getStructure(), ignoreOSRuses, NULL, false, comp->getOption(TR_EnableAggressiveLiveness));
+
+      for (TR::CFGNode *cfgNode = comp->getFlowGraph()->getFirstNode(); cfgNode; cfgNode = cfgNode->getNext())
+         {
+         TR::Block *block     = toBlock(cfgNode);
+         int32_t blockNum    = block->getNumber();
+         if (blockNum > 0 && liveLocals._blockAnalysisInfo[blockNum])
+            {
+            liveVars = new (trHeapMemory) TR_BitVector(numLocals, trMemory);
+            *liveVars = *liveLocals._blockAnalysisInfo[blockNum];
+            block->setLiveLocals(liveVars);
+            }
+         }
+
+      // Make sure the code generator knows there are live locals for blocks, and
+      // create a bit vector of the correct size for it.
+      //
+      liveVars = new (trHeapMemory) TR_BitVector(numLocals, trMemory);
+      self()->setLiveLocals(liveVars);
+      }
+
+   // See if any collected reference locals are live at the start of the block.
+   // These will need to be initialized at method prologue.
+   //
+   liveVars = comp->getStartBlock()->getLiveLocals();
+   if (liveVars && !liveVars->isEmpty())
+      {
+      locals.reset();
+      for (p = locals.getFirst(); p != NULL; p = locals.getNext())
+         {
+         if (p->isCollectedReference() &&
+             liveVars->get(p->getLiveLocalIndex()))
+            {
+            if (performTransformation(comp, "%s Local #%d is live at the start of the method\n", OPT_DETAILS, p->getLiveLocalIndex()))
+               p->setUninitializedReference();
+            }
+         }
+      }
+   }
+
+#if 0
+void
+J9::CodeGenerator::rerunLivenessAnalysis()
+   {
+   auto comp = self()->comp();
+   auto trHeapMemory = self()->trHeapMemory();
+   auto trMemory = self()->trMemory();
+
+   if (!comp->getFlowGraph()->getStructure())
+      {
+      comp->getFlowGraph()->setStructure(TR_RegionAnalysis::getRegions(comp));
+      }
+
+      {
+      TR_BitVector *liveVars = NULL;
+      int32_t numLocals = 0;
+      TR::AutomaticSymbol *a;
+      ListIterator<TR::AutomaticSymbol> locals(&comp->getMethodSymbol()->getAutomaticList());
+      for (a = locals.getFirst(); a != NULL; a = locals.getNext())
+         {
+         // Mark collected locals as initialized. We will reset this property for
+         // any locals that are live at the start of the method.
+         //
+         if (a->isCollectedReference() &&
+            (!comp->getOption(TR_MimicInterpreterFrameShape) ||
+             !comp->areSlotsSharedByRefAndNonRef() ||
+             a->isSlotSharedByRefAndNonRef()))
+               a->setInitializedReference();
+         ++numLocals;
+         }
+
+      if (comp->getOption(TR_EnableAggressiveLiveness))
+         {
+         TR::ParameterSymbol *p;
+         ListIterator<TR::ParameterSymbol> parms(&comp->getMethodSymbol()->getParameterList());
+         for (p = parms.getFirst(); p != NULL; p = parms.getNext())
+            ++numLocals;
+         }
+
+      if (numLocals > 0)
+         {
+         dumpOptDetails(comp, "%sRerunning liveness numLocals %d\n", OPT_DETAILS, numLocals);
+         // Perform liveness analysis
+         //
+         bool ignoreOSRuses = false;
+         if (comp->getOption(TR_MimicInterpreterFrameShape))
+            ignoreOSRuses = true;
+
+         TR_Liveness liveLocals(comp, NULL, comp->getFlowGraph()->getStructure(), ignoreOSRuses, NULL, false, comp->getOption(TR_EnableAggressiveLiveness));
+
+         for (TR::CFGNode *cfgNode = comp->getFlowGraph()->getFirstNode(); cfgNode; cfgNode = cfgNode->getNext())
+            {
+            TR::Block *block    = toBlock(cfgNode);
+            int32_t blockNum    = block->getNumber();
+            if (blockNum > 0 && liveLocals._blockAnalysisInfo[blockNum])
+               {
+               liveVars = new (trHeapMemory) TR_BitVector(numLocals, trMemory);
+               *liveVars = *liveLocals._blockAnalysisInfo[blockNum];
+               block->setLiveLocals(liveVars);
+               }
+            }
+
+         // Make sure the code generator knows there are live locals for blocks, and
+         // create a bit vector of the correct size for it.
+         //
+         liveVars = new (trHeapMemory) TR_BitVector(numLocals, trMemory);
+         self()->setLiveLocals(liveVars);
+         }
+
+      // See if any collected reference locals are live at the start of the block.
+      // These will need to be initialized at method prologue.
+      //
+      liveVars = comp->getStartBlock()->getLiveLocals();
+      if (liveVars && !liveVars->isEmpty())
+         {
+         locals.reset();
+         for (a = locals.getFirst(); a != NULL; a = locals.getNext())
+            {
+            if (a->isCollectedReference() &&
+               liveVars->get(a->getLiveLocalIndex()))
+               {
+               dumpOptDetails(comp, "%sLocal #%d is live at the start of the method\n", OPT_DETAILS, a->getLiveLocalIndex());
+               a->setUninitializedReference();
+               }
+            }
+         }
+      }
+   }
+#endif
 /*
  * If value types are enabled, and the value that is being assigned to the array
  * element might be a null reference, lower the ArrayStoreCHK by splitting the
@@ -1625,6 +1829,8 @@ J9::CodeGenerator::lowerArrayStoreCHK(TR::Node *node, TR::TreeTop *tt)
       TR::Node *passThru  = TR::Node::create(node, TR::PassThrough, 1, sourceChild);
       TR::ResolvedMethodSymbol *currentMethod = self()->comp()->getMethodSymbol();
 
+      // Need to rerun liveness analysis because the live locals for the split blocks might be updated after splitPostGRA.
+      //self()->setRerunLivenessAnalysis();
       TR::Block *arrayStoreCheckBlock = prevBlock->splitPostGRA(tt, cfg);
 
       ifNode->setBranchDestination(arrayStoreCheckBlock->getEntry());
