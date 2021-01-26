@@ -3533,6 +3533,8 @@ processVMArgsFromFirstToLast(J9JavaVM * vm)
 		}
 	}
 #if defined(J9VM_OPT_VALHALLA_VALUE_TYPES)
+   vm->extendedRuntimeFlags2 |= J9_EXTENDED_RUNTIME2_ENABLE_VALHALLA;
+#if 0
 	{
 		IDATA enableValueTypes = FIND_AND_CONSUME_ARG(EXACT_MATCH, VMOPT_XXENABLEVALHALLA, NULL);
 		IDATA disableValueTypes = FIND_AND_CONSUME_ARG(EXACT_MATCH, VMOPT_XXDISABLEVALHALLA, NULL);
@@ -3542,6 +3544,7 @@ processVMArgsFromFirstToLast(J9JavaVM * vm)
 			vm->extendedRuntimeFlags2 &= ~J9_EXTENDED_RUNTIME2_ENABLE_VALHALLA;
 		}
 	}
+#endif
 #endif /* defined(J9VM_OPT_VALHALLA_VALUE_TYPES) */
 
 	{
