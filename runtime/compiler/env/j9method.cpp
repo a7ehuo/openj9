@@ -5171,7 +5171,16 @@ TR_ResolvedJ9Method::isConstructor()
    if (!TR::Compiler->om.areValueTypesEnabled())
       return (nameLength()==6 && !strncmp(nameChars(), "<init>", 6));
    else
-      return (nameLength()==6 && !isStatic() && (returnType()==TR::NoType) && !strncmp(nameChars(), "<init>", 6));
+      {
+      TR::Compilation *comp = TR::comp();
+      static char *disableConstructorCheck = feGetEnv("TR_DisableValueTypesConstructorCheck");
+      static char *enableConstructorCheck = feGetEnv("TR_EnableValueTypesConstructorCheck");
+
+      if (comp->continueProcessValueTypes(disableConstructorCheck, enableConstructorCheck))
+         return (nameLength()==6 && !isStatic() && (returnType()==TR::NoType) && !strncmp(nameChars(), "<init>", 6));
+      else
+         return (nameLength()==6 && !strncmp(nameChars(), "<init>", 6));
+      }
    }
 
 bool TR_ResolvedJ9Method::isStatic()            { return methodModifiers() & J9AccStatic ? true : false; }

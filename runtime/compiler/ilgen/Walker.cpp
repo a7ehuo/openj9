@@ -2376,7 +2376,11 @@ TR_J9ByteCodeIlGenerator::genCheckCast()
 void
 TR_J9ByteCodeIlGenerator::genCheckCast(int32_t cpIndex)
    {
-   if (TR::Compiler->om.areValueTypesEnabled() && TR::Compiler->cls.isClassRefValueType(comp(), method()->classOfMethod(), cpIndex))
+   static char *disableCHECKCAST = feGetEnv("TR_DisableValueTypesCHECKCAST");
+   static char *enableCHECKCAST = feGetEnv("TR_EnableValueTypesCHECKCAST");
+   if (TR::Compiler->om.areValueTypesEnabled() &&
+       comp()->continueProcessValueTypes(disableCHECKCAST, enableCHECKCAST) &&
+       TR::Compiler->cls.isClassRefValueType(comp(), method()->classOfMethod(), cpIndex))
       {
       TR::Node * objNode = _stack->top();
 
@@ -2698,7 +2702,11 @@ TR_J9ByteCodeIlGenerator::genIfTwoOperand(TR::ILOpCodes nodeop)
 int32_t
 TR_J9ByteCodeIlGenerator::genIfAcmpEqNe(TR::ILOpCodes ifacmpOp)
    {
-   if (!TR::Compiler->om.areValueTypesEnabled())
+   static char *disableACMP = feGetEnv("TR_DisableValueTypesACMP");
+   static char *enableACMP = feGetEnv("TR_EnableValueTypesACMP");
+
+   if (!TR::Compiler->om.areValueTypesEnabled() ||
+       !comp()->continueProcessValueTypes(disableACMP, enableACMP))
       return genIfTwoOperand(ifacmpOp);
 
    int32_t branchBC = _bcIndex + next2BytesSigned();
@@ -5089,8 +5097,12 @@ TR_J9ByteCodeIlGenerator::loadInstance(int32_t cpIndex)
    if (_generateReadBarriersForFieldWatch && comp()->compileRelocatableCode())
       comp()->failCompilation<J9::AOTNoSupportForAOTFailure>("NO support for AOT in field watch");
 
+   static char *disableGetfieldFlattened = feGetEnv("TR_DisableValueTypesGetfieldFlattened");
+   static char *enableGetfieldFlattened = feGetEnv("TR_EnableValueTypesGetfieldFlattened");
    TR_ResolvedJ9Method * owningMethod = static_cast<TR_ResolvedJ9Method*>(_methodSymbol->getResolvedMethod());
-   if (TR::Compiler->om.areValueTypesEnabled() && owningMethod->isFieldQType(cpIndex))
+   if (TR::Compiler->om.areValueTypesEnabled() &&
+       comp()->continueProcessValueTypes(disableGetfieldFlattened, enableGetfieldFlattened) &&
+       owningMethod->isFieldQType(cpIndex))
       {
       if (!isFieldResolved(comp(), owningMethod, cpIndex, false))
          {
@@ -6077,7 +6089,11 @@ TR_J9ByteCodeIlGenerator::loadFromCallSiteTable(int32_t callSiteIndex)
 void
 TR_J9ByteCodeIlGenerator::loadArrayElement(TR::DataType dataType, TR::ILOpCodes nodeop, bool checks)
    {
-   if (TR::Compiler->om.areValueTypesEnabled() && dataType == TR::Address)
+   static char *disableLoadArrayElement = feGetEnv("TR_DisableValueTypesLoadArrayElement");
+   static char *enableLoadArrayElement = feGetEnv("TR_EnableValueTypesLoadArrayElement");
+   if (TR::Compiler->om.areValueTypesEnabled() &&
+       comp()->continueProcessValueTypes(disableLoadArrayElement, enableLoadArrayElement) &&
+       dataType == TR::Address)
       {
       TR::Node* elementIndex = pop();
       TR::Node* arrayBaseAddress = pop();
@@ -7055,8 +7071,12 @@ TR_J9ByteCodeIlGenerator::storeInstance(int32_t cpIndex)
    if (_generateWriteBarriersForFieldWatch && comp()->compileRelocatableCode())
       comp()->failCompilation<J9::AOTNoSupportForAOTFailure>("NO support for AOT in field watch");
 
+   static char *disablePutfieldFlattened = feGetEnv("TR_DisableValueTypesPutfieldFlattened");
+   static char *enablePutfieldFlattened = feGetEnv("TR_EnableValueTypesPutfieldFlattened");
    TR_ResolvedJ9Method * owningMethod = static_cast<TR_ResolvedJ9Method*>(_methodSymbol->getResolvedMethod());
-   if (TR::Compiler->om.areValueTypesEnabled() && owningMethod->isFieldQType(cpIndex))
+   if (TR::Compiler->om.areValueTypesEnabled() &&
+       comp()->continueProcessValueTypes(disablePutfieldFlattened, enablePutfieldFlattened) &&
+       owningMethod->isFieldQType(cpIndex))
       {
       if (!isFieldResolved(comp(), owningMethod, cpIndex, true))
          {
@@ -7537,7 +7557,11 @@ TR_J9ByteCodeIlGenerator::storeArrayElement(TR::DataType dataType, TR::ILOpCodes
 
    handlePendingPushSaveSideEffects(value);
 
-   if (TR::Compiler->om.areValueTypesEnabled() && dataType == TR::Address)
+   static char *disableStoreArrayElement = feGetEnv("TR_DisableValueTypesStoreArrayElement");
+   static char *enableStoreArrayElement = feGetEnv("TR_EnableValueTypesStoreArrayElement");
+   if (TR::Compiler->om.areValueTypesEnabled() &&
+       comp()->continueProcessValueTypes(disableStoreArrayElement, enableStoreArrayElement) &&
+       dataType == TR::Address)
       {
       TR::Node* elementIndex = pop();
       TR::Node* arrayBaseAddress = pop();

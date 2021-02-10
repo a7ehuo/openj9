@@ -5423,6 +5423,12 @@ J9::CodeGenerator::isMonitorValueBasedOrValueType(TR::Node* monNode)
    {
    if (TR::Compiler->om.areValueTypesEnabled() || TR::Compiler->om.areValueBasedMonitorChecksEnabled())
       {
+      static char *disableMon = feGetEnv("TR_DisableValueTypesMon");
+      static char *enableMon = feGetEnv("TR_EnableValueTypesMon");
+
+      if (!self()->comp()->continueProcessValueTypes(disableMon, enableMon))
+         return TR_no;
+
       TR_OpaqueClassBlock *clazz = self()->getMonClass(monNode);
 
       if (!clazz)

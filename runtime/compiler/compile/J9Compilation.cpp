@@ -48,6 +48,7 @@
 #include "il/Node_inlines.hpp"
 #include "ilgen/IlGenRequest.hpp"
 #include "infra/List.hpp"
+#include "infra/SimpleRegex.hpp"
 #include "optimizer/Inliner.hpp"
 #include "optimizer/OptimizationManager.hpp"
 #include "optimizer/Optimizer.hpp"
@@ -642,7 +643,9 @@ J9::Compilation::canAllocateInline(TR::Node* node, TR_OpaqueClassBlock* &classIn
 
    bool generateArraylets = self()->generateArraylets();
 
-   const bool areValueTypesEnabled = TR::Compiler->om.areValueTypesEnabled();
+   static char *disableCanAllocateInline = feGetEnv("TR_DisableValueTypesCanAllocateInline");
+   static char *enableCanAllocateInline = feGetEnv("TR_EnableValueTypesCanAllocateInline");
+   const bool areValueTypesEnabled = TR::Compiler->om.areValueTypesEnabled() ? self()->continueProcessValueTypes(disableCanAllocateInline, enableCanAllocateInline) : false;
 
    if (node->getOpCodeValue() == TR::New)
       {
@@ -1562,3 +1565,31 @@ J9::Compilation::incompleteOptimizerSupportForReadWriteBarriers()
    return self()->getOption(TR_EnableFieldWatch);
    }
 
+bool
+J9::Compilation::continueProcessValueTypes(char *disableRegex, char *enableRegex)
+   {
+   if ((disableRegex && enableRegex) ||
+       (!disableRegex && !enableRegex))
+      {
+      return true;
+      }
+   else if (disableRegex)
+      {
+      TR::SimpleRegex * regex = TR::SimpleRegex::create(disableRegex);
+      if (TR::SimpleRegex::match(regex, self()->signature()))
+         {
+         printf("disableRegex %p enableRegex %p %s\n", disableRegex, enableRegex, self()->signature());
+         return false;
+         }
+      else
+         return true;
+      }
+   else //enableRegex
+      {
+      TR::SimpleRegex * regex = TR::SimpleRegex::create(enableRegex);
+      if (TR::SimpleRegex::match(regex, self()->signature()))
+         return true;
+      else
+         return false;
+      }
+   }
