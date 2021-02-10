@@ -2376,7 +2376,9 @@ TR_J9ByteCodeIlGenerator::genCheckCast()
 void
 TR_J9ByteCodeIlGenerator::genCheckCast(int32_t cpIndex)
    {
-   if (TR::Compiler->om.areValueTypesEnabled() && TR::Compiler->cls.isClassRefValueType(comp(), method()->classOfMethod(), cpIndex))
+   if (TR::Compiler->om.areValueTypesEnabled() &&
+       comp()->continueToCompile("TR_DisableValueTypesCHECKCAST", "TR_EnableValueTypesCHECKCAST") &&
+       TR::Compiler->cls.isClassRefValueType(comp(), method()->classOfMethod(), cpIndex))
       {
       TR::Node * objNode = _stack->top();
 
@@ -2698,7 +2700,8 @@ TR_J9ByteCodeIlGenerator::genIfTwoOperand(TR::ILOpCodes nodeop)
 int32_t
 TR_J9ByteCodeIlGenerator::genIfAcmpEqNe(TR::ILOpCodes ifacmpOp)
    {
-   if (!TR::Compiler->om.areValueTypesEnabled())
+   if (!TR::Compiler->om.areValueTypesEnabled() &&
+       !comp()->continueToCompile("TR_DisableValueTypesACMP", "TR_EnableValueTypesACMP"))
       return genIfTwoOperand(ifacmpOp);
 
    int32_t branchBC = _bcIndex + next2BytesSigned();
@@ -5090,7 +5093,9 @@ TR_J9ByteCodeIlGenerator::loadInstance(int32_t cpIndex)
       comp()->failCompilation<J9::AOTNoSupportForAOTFailure>("NO support for AOT in field watch");
 
    TR_ResolvedJ9Method * owningMethod = static_cast<TR_ResolvedJ9Method*>(_methodSymbol->getResolvedMethod());
-   if (TR::Compiler->om.areValueTypesEnabled() && owningMethod->isFieldQType(cpIndex))
+   if (TR::Compiler->om.areValueTypesEnabled() &&
+       comp()->continueToCompile("TR_DisableValueTypesGetfieldFlattened", "TR_EnableValueTypesGetfieldFlattened") &&
+       owningMethod->isFieldQType(cpIndex))
       {
       if (!isFieldResolved(comp(), owningMethod, cpIndex, false))
          {
@@ -6077,7 +6082,9 @@ TR_J9ByteCodeIlGenerator::loadFromCallSiteTable(int32_t callSiteIndex)
 void
 TR_J9ByteCodeIlGenerator::loadArrayElement(TR::DataType dataType, TR::ILOpCodes nodeop, bool checks)
    {
-   if (TR::Compiler->om.areValueTypesEnabled() && dataType == TR::Address)
+   if (TR::Compiler->om.areValueTypesEnabled() &&
+       comp()->continueToCompile("TR_DisableValueTypesLoadArrayElement", "TR_EnableValueTypesLoadArrayElement") &&
+       dataType == TR::Address)
       {
       TR::Node* elementIndex = pop();
       TR::Node* arrayBaseAddress = pop();
@@ -7056,7 +7063,9 @@ TR_J9ByteCodeIlGenerator::storeInstance(int32_t cpIndex)
       comp()->failCompilation<J9::AOTNoSupportForAOTFailure>("NO support for AOT in field watch");
 
    TR_ResolvedJ9Method * owningMethod = static_cast<TR_ResolvedJ9Method*>(_methodSymbol->getResolvedMethod());
-   if (TR::Compiler->om.areValueTypesEnabled() && owningMethod->isFieldQType(cpIndex))
+   if (TR::Compiler->om.areValueTypesEnabled() &&
+       comp()->continueToCompile("TR_DisableValueTypesPutfieldFlattened", "TR_EnableValueTypesPutfieldFlattened") &&
+       owningMethod->isFieldQType(cpIndex))
       {
       if (!isFieldResolved(comp(), owningMethod, cpIndex, true))
          {
@@ -7537,7 +7546,9 @@ TR_J9ByteCodeIlGenerator::storeArrayElement(TR::DataType dataType, TR::ILOpCodes
 
    handlePendingPushSaveSideEffects(value);
 
-   if (TR::Compiler->om.areValueTypesEnabled() && dataType == TR::Address)
+   if (TR::Compiler->om.areValueTypesEnabled() &&
+       comp()->continueToCompile("TR_DisableValueTypesStoreArrayElement", "TR_EnableValueTypesStoreArrayElement") &&
+       dataType == TR::Address)
       {
       TR::Node* elementIndex = pop();
       TR::Node* arrayBaseAddress = pop();

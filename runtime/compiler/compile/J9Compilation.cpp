@@ -48,6 +48,7 @@
 #include "il/Node_inlines.hpp"
 #include "ilgen/IlGenRequest.hpp"
 #include "infra/List.hpp"
+#include "infra/SimpleRegex.hpp"
 #include "optimizer/Inliner.hpp"
 #include "optimizer/OptimizationManager.hpp"
 #include "optimizer/Optimizer.hpp"
@@ -1562,3 +1563,31 @@ J9::Compilation::incompleteOptimizerSupportForReadWriteBarriers()
    return self()->getOption(TR_EnableFieldWatch);
    }
 
+bool
+J9::Compilation::continueToCompile(const char * disableEnvVar, const char * enableEnvVar)
+   {
+   static char *disable = feGetEnv(disableEnvVar);
+   static char *enable = feGetEnv(disableEnvVar);
+
+   if ((disable && enable) ||
+       (!disable && !enable))
+      {
+      return true;
+      }
+   else if (disable)
+      {
+      static TR::SimpleRegex * regex = TR::SimpleRegex::create(disable);
+      if (TR::SimpleRegex::match(regex, self()->signature()))
+         return false;
+      else
+         return true;
+      }
+   else //enable
+      {
+      static TR::SimpleRegex * regex = TR::SimpleRegex::create(enable);
+      if (TR::SimpleRegex::match(regex, self()->signature()))
+         return true;
+      else
+         return false;
+      }
+   }

@@ -374,6 +374,8 @@ class OMR_EXTENSIBLE Compilation : public OMR::CompilationConnector
       }
    int32_t getTracingBufferFreeSpace() { return _tracingBufferFreeSpace; }
 
+   bool continueToCompile(const char * disableEnvVar, const char * enableEnvVar);
+
 private:
    enum CachedClassPointerId
       {
