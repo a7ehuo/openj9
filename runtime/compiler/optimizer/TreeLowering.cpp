@@ -68,7 +68,7 @@ TR::TreeLowering::lowerValueTypeOperations(TR::Node* node, TR::TreeTop* tt)
       {
       // turn the non-helper call into a VM helper call
       node->setSymbolReference(symRefTab->findOrCreateAcmpHelperSymbolRef());
-      static const bool disableAcmpFastPath =  NULL != feGetEnv("TR_DisableAcmpFastpath");
+      static char *  disableAcmpFastPath = feGetEnv("TR_DisableAcmpFastpath");
       if (!disableAcmpFastPath)
          {
          fastpathAcmpHelper(node, tt);
@@ -76,7 +76,9 @@ TR::TreeLowering::lowerValueTypeOperations(TR::Node* node, TR::TreeTop* tt)
       }
    else if (node->getOpCodeValue() == TR::ArrayStoreCHK)
       {
-      lowerArrayStoreCHK(node, tt);
+      static char * disableLowerArrayStoreCHK = feGetEnv("TR_DisableLowerArrayStoreCHK");
+      if (!disableLowerArrayStoreCHK)
+         lowerArrayStoreCHK(node, tt);
       }
    }
 
@@ -297,6 +299,8 @@ TR::TreeLowering::fastpathAcmpHelper(TR::Node *node, TR::TreeTop *tt)
       }
 
    prevBlock->append(TR::TreeTop::create(comp, ifacmpeqNode));
+
+   cfg->addEdge(prevBlock, targetBlock);
    }
 
 /*

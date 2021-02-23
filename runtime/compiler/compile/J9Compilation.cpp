@@ -642,7 +642,8 @@ J9::Compilation::canAllocateInline(TR::Node* node, TR_OpaqueClassBlock* &classIn
 
    bool generateArraylets = self()->generateArraylets();
 
-   const bool areValueTypesEnabled = TR::Compiler->om.areValueTypesEnabled();
+   static char * disableCanAllocateInline = feGetEnv("TR_DisableCanAllocateInline");
+   const bool areValueTypesEnabled = (TR::Compiler->om.areValueTypesEnabled() && !disableCanAllocateInline);
 
    if (node->getOpCodeValue() == TR::New)
       {

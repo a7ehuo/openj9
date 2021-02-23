@@ -5168,7 +5168,10 @@ TR_ResolvedJ9Method::methodModifiers()
 bool
 TR_ResolvedJ9Method::isConstructor()
    {
-   if (!TR::Compiler->om.areValueTypesEnabled())
+   static char * disableIsConstructorCheck = feGetEnv("TR_DisableIsConstructorCheck");
+   bool isValueTypeEnabled = (TR::Compiler->om.areValueTypesEnabled() && !disableIsConstructorCheck); 
+
+   if (!isValueTypeEnabled)
       return (nameLength()==6 && !strncmp(nameChars(), "<init>", 6));
    else
       return (nameLength()==6 && !isStatic() && (returnType()==TR::NoType) && !strncmp(nameChars(), "<init>", 6));

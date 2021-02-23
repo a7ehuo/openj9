@@ -103,6 +103,10 @@ J9::ObjectModel::initialize()
 bool
 J9::ObjectModel::areValueTypesEnabled()
    {
+   static char * disableValueTypeAll = feGetEnv("TR_DisableValueTypeAll");
+   if (disableValueTypeAll)
+      return false;
+
 #if defined(J9VM_OPT_JITSERVER)
    if (auto stream = TR::CompilationInfo::getStream())
       {

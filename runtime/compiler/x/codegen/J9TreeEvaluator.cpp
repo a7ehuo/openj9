@@ -1161,11 +1161,14 @@ TR::Register *J9::X86::TreeEvaluator::newEvaluator(TR::Node *node, TR::CodeGener
    TR::Compilation *comp = cg->comp();
    TR::Register *targetRegister=NULL;
 
+   static char * disableNewEvaluator = feGetEnv("TR_DisableNewEvaluator");
+   bool isValueTypeEnabled = (TR::Compiler->om.areValueTypesEnabled() && !disableNewEvaluator); 
+
    // If the helper symbol set on the node is TR_newValue, we are (expecting to be)
    // dealing with a value type. Since we do not fully support value types yet, always
    // call the JIT helper to do the allocation.
    //
-   if (TR::Compiler->om.areValueTypesEnabled() && node->getSymbolReference() == comp->getSymRefTab()->findOrCreateNewValueSymbolRef(comp->getMethodSymbol()))
+   if (isValueTypeEnabled && node->getSymbolReference() == comp->getSymRefTab()->findOrCreateNewValueSymbolRef(comp->getMethodSymbol()))
       {
       TR_OpaqueClassBlock *classInfo;
       bool spillFPRegs = comp->canAllocateInlineOnStack(node, classInfo) <= 0;
