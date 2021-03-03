@@ -67,6 +67,14 @@ class TreeLowering : public TR::Optimization
    void lowerValueTypeOperations(TR::Node* node, TR::TreeTop* tt);
    void fastpathAcmpHelper(TR::Node* node, TR::TreeTop* tt);
    void lowerArrayStoreCHK(TR::Node* node, TR::TreeTop* tt);
+
+   void lowerLoadArrayElement(TR::Node* node, TR::TreeTop* tt);
+   void lowerStoreArrayElement(TR::Node* node, TR::TreeTop* tt);
+   TR::Node* createStoreNodeForAnchoredNode(TR::Node *anchoredNode, TR::Node *nodeToBeStored, const char *msg);
+   void copyRegisterDependencyBasedOnAnchoredNode(TR::Block *fromBlock, TR::Node *toNode, TR::Node *anchoredNode, TR::Node *storeNode);
+   void copyRegisterDependency(TR::Node *fromNode, TR::Node *toNode);
+   void printTT(char *str, TR::TreeTop *tt);
+   void printBlock(char *str, TR::Block *block);
    };
 
 }
