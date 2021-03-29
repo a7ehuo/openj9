@@ -2698,7 +2698,8 @@ TR_J9ByteCodeIlGenerator::genIfTwoOperand(TR::ILOpCodes nodeop)
 int32_t
 TR_J9ByteCodeIlGenerator::genIfAcmpEqNe(TR::ILOpCodes ifacmpOp)
    {
-   if (!TR::Compiler->om.areValueTypesEnabled())
+   static char *disableGenIfAcmpEqNe = feGetEnv("TR_DisableGenIfAcmpEqNe");
+   if (!TR::Compiler->om.areValueTypesEnabled() || disableGenIfAcmpEqNe)
       return genIfTwoOperand(ifacmpOp);
 
    int32_t branchBC = _bcIndex + next2BytesSigned();
@@ -6199,7 +6200,8 @@ TR_J9ByteCodeIlGenerator::loadFromCallSiteTable(int32_t callSiteIndex)
 void
 TR_J9ByteCodeIlGenerator::loadArrayElement(TR::DataType dataType, TR::ILOpCodes nodeop, bool checks)
    {
-   if (TR::Compiler->om.areValueTypesEnabled() && dataType == TR::Address)
+   static char *disableLoadArrayElementHelperILGen = feGetEnv("TR_DisableLoadArrayElementHelperILGen");
+   if (TR::Compiler->om.areValueTypesEnabled() && !TR::Compiler->om.canGenerateArraylets() && !disableLoadArrayElementHelperILGen && dataType == TR::Address)
       {
       TR::Node* elementIndex = pop();
       TR::Node* arrayBaseAddress = pop();
@@ -6211,6 +6213,8 @@ TR_J9ByteCodeIlGenerator::loadArrayElement(TR::DataType dataType, TR::ILOpCodes 
          }
       auto* helperSymRef = comp()->getSymRefTab()->findOrCreateLoadFlattenableArrayElementSymbolRef();
       auto* helperCallNode = TR::Node::createWithSymRef(TR::acall, 2, 2, elementIndex, arrayBaseAddress, helperSymRef);
+
+      genTreeTop(helperCallNode);
       push(helperCallNode);
       return;
       }
@@ -7653,7 +7657,8 @@ TR_J9ByteCodeIlGenerator::storeArrayElement(TR::DataType dataType, TR::ILOpCodes
 
    handlePendingPushSaveSideEffects(value);
 
-   if (TR::Compiler->om.areValueTypesEnabled() && dataType == TR::Address)
+   static char *disableStoreArrayElementHelperILGen = feGetEnv("TR_DisableStoreArrayElementHelperILGen");
+   if (TR::Compiler->om.areValueTypesEnabled() && !TR::Compiler->om.canGenerateArraylets() && !disableStoreArrayElementHelperILGen && dataType == TR::Address)
       {
       TR::Node* elementIndex = pop();
       TR::Node* arrayBaseAddress = pop();

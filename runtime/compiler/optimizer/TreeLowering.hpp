@@ -27,6 +27,7 @@
 #include "il/Node_inlines.hpp"
 #include "il/TreeTop.hpp"
 #include "il/TreeTop_inlines.hpp"
+#include "infra/ILWalk.hpp"
 #include "optimizer/Optimization.hpp"
 #include "optimizer/Optimization_inlines.hpp"
 #include "optimizer/OptimizationManager.hpp"
@@ -64,9 +65,19 @@ class TreeLowering : public TR::Optimization
    private:
 
    // helpers related to Valhalla value type lowering
-   void lowerValueTypeOperations(TR::Node* node, TR::TreeTop* tt);
+   void lowerValueTypeOperations(TR::PreorderNodeIterator& nodeIter, TR::Node* node, TR::TreeTop* tt);
    void fastpathAcmpHelper(TR::Node* node, TR::TreeTop* tt);
    void lowerArrayStoreCHK(TR::Node* node, TR::TreeTop* tt);
+
+   void lowerLoadArrayElement(TR::PreorderNodeIterator& nodeIter, TR::Node* node, TR::TreeTop* tt);
+   void lowerStoreArrayElement(TR::PreorderNodeIterator& nodeIter, TR::Node* node, TR::TreeTop* tt);
+
+   void moveTTAndStoreNodeToEnd(TR::TreeTop *blockExit, TR::TreeTop *ttToBeMoved, TR::Node *storedNode);
+   TR::Node* createStoreNodeForAnchoredNode(TR::Node *anchoredNode, TR::Node *nodeToBeStored, const char *msg);
+   void copyRegisterDependencyBasedOnAnchoredNode(TR::Block *fromBlock, TR::Node *toNode, TR::Node *anchoredNode, TR::Node *storeNode);
+   void copyRegisterDependency(TR::Node *fromNode, TR::Node *toNode);
+   void printTT(char *str, TR::TreeTop *tt);
+   void printBlock(char *str, TR::Block *block);
    };
 
 }
