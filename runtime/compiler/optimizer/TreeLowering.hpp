@@ -27,6 +27,7 @@
 #include "il/Node_inlines.hpp"
 #include "il/TreeTop.hpp"
 #include "il/TreeTop_inlines.hpp"
+#include "infra/ILWalk.hpp"
 #include "optimizer/Optimization.hpp"
 #include "optimizer/Optimization_inlines.hpp"
 #include "optimizer/OptimizationManager.hpp"
@@ -63,10 +64,28 @@ class TreeLowering : public TR::Optimization
 
    private:
 
+   /**
+    * @brief Moves a node down to the end of a block
+    *
+    * Any stores of the value of the node are also moved down.
+    *
+    * This can be useful to do after a call to splitPostGRA where, as part of un-commoning,
+    * it is possible that code to store the anchored node into a register or temp-slot is
+    * appended to the original block.
+    *
+    * @param block is the block containing the TreeTop to be moved
+    * @param tt is a pointer to the TreeTop to be moved
+    * @param isAddress shows if the node is address, otherwise it is assumed to be an integer
+    */
+   void moveNodeToEndOfBlock(TR::Block* const block, TR::TreeTop* const tt, TR::Node* const node, bool isAddress = false);
+
    // helpers related to Valhalla value type lowering
-   void lowerValueTypeOperations(TR::Node* node, TR::TreeTop* tt);
+   void lowerValueTypeOperations(TR::PreorderNodeIterator& nodeIter, TR::Node* node, TR::TreeTop* tt);
    void fastpathAcmpHelper(TR::Node* node, TR::TreeTop* tt);
    void lowerArrayStoreCHK(TR::Node* node, TR::TreeTop* tt);
+
+   void lowerLoadArrayElement(TR::PreorderNodeIterator& nodeIter, TR::Node* node, TR::TreeTop* tt);
+   void lowerStoreArrayElement(TR::PreorderNodeIterator& nodeIter, TR::Node* node, TR::TreeTop* tt);
    };
 
 }
