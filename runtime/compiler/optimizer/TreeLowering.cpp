@@ -42,17 +42,18 @@ TR::TreeLowering::perform()
       return 0;
       }
 
+   TransformationManager transformations(comp()->region());
+
    TR::ResolvedMethodSymbol* methodSymbol = comp()->getMethodSymbol();
    for (TR::PreorderNodeIterator nodeIter(methodSymbol->getFirstTreeTop(), comp()); nodeIter != NULL; ++nodeIter)
       {
       TR::Node* node = nodeIter.currentNode();
       TR::TreeTop* tt = nodeIter.currentTree();
 
-      if (TR::Compiler->om.areValueTypesEnabled())
-         {
-         lowerValueTypeOperations(nodeIter, node, tt);
-         }
+      lowerValueTypeOperations(nodeIter, node, tt);
       }
+
+   transformations.doTransformations();
 
    return 0;
    }
@@ -102,6 +103,63 @@ TR::TreeLowering::moveNodeToEndOfBlock(TR::Block* const block, TR::TreeTop* cons
       blockExit->getPrevTreeTop()->join(tt);
       lastTTForCallBlock->join(blockExit);
       }
+   }
+
+
+void
+TR::TreeLowering::Transformer::moveNodeToEndOfBlock(TR::Block* const block, TR::TreeTop* const tt, TR::Node* const node)
+   {
+   TR::TreeTop* blockExit = block->getExit();
+   TR::TreeTop* iterTT = tt->getNextTreeTop();
+
+   if (iterTT != blockExit)
+      {
+      if (trace())
+         {
+         traceMsg(comp(), "Moving treetop containing node n%dn [%p] for acmp helper call to end of prevBlock in preparation of final block split\n", tt->getNode()->getGlobalIndex(), tt->getNode());
+         }
+
+      // Remove TreeTop for call node, and gather it and the treetops for stores that
+      // resulted from un-commoning in a TreeTop chain from tt to lastTTForCallBlock
+      tt->unlink(false);
+      TR::TreeTop* lastTTForCallBlock = tt;
+
+      while (iterTT != blockExit)
+         {
+         TR::TreeTop* nextTT = iterTT->getNextTreeTop();
+         TR::ILOpCodes op = iterTT->getNode()->getOpCodeValue();
+
+         if ((op == TR::iRegStore || op == TR::istore) && iterTT->getNode()->getFirstChild() == node)
+            {
+            if (trace())
+               {
+               traceMsg(comp(), "Moving treetop containing node n%dn [%p] for store of acmp helper result to end of prevBlock in preparation of final block split\n", iterTT->getNode()->getGlobalIndex(), iterTT->getNode());
+               }
+
+            // Remove store node from prevBlock temporarily
+            iterTT->unlink(false);
+            lastTTForCallBlock->join(iterTT);
+            lastTTForCallBlock = iterTT;
+            }
+
+         iterTT = nextTT;
+         }
+
+      // Move the treetops that were gathered for the call and any stores of the
+      // result to the end of the block in preparation for the split of the call block
+      blockExit->getPrevTreeTop()->join(tt);
+      lastTTForCallBlock->join(blockExit);
+      }
+   }
+
+TR::Block*
+TR::TreeLowering::Transformer::splitForFastpath(TR::Block* const block, TR::TreeTop* const splitPoint, TR::Block* const targetBlock)
+   {
+   TR::CFG* const cfg = comp()->getFlowGraph();
+   TR::Block* const newBlock = block->split(splitPoint, cfg);
+   newBlock->setIsExtensionOfPreviousBlock(true);
+   cfg->addEdge(block, targetBlock);
+   return newBlock;
    }
 
 /**
