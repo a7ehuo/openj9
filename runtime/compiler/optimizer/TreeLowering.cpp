@@ -42,17 +42,18 @@ TR::TreeLowering::perform()
       return 0;
       }
 
+   TransformationManager transformations(comp()->region());
+
    TR::ResolvedMethodSymbol* methodSymbol = comp()->getMethodSymbol();
    for (TR::PreorderNodeIterator nodeIter(methodSymbol->getFirstTreeTop(), comp()); nodeIter != NULL; ++nodeIter)
       {
       TR::Node* node = nodeIter.currentNode();
       TR::TreeTop* tt = nodeIter.currentTree();
 
-      if (TR::Compiler->om.areValueTypesEnabled())
-         {
-         lowerValueTypeOperations(nodeIter, node, tt);
-         }
+      lowerValueTypeOperations(transformations, node, tt);
       }
+
+   transformations.doTransformations();
 
    return 0;
    }
@@ -104,30 +105,71 @@ TR::TreeLowering::moveNodeToEndOfBlock(TR::Block* const block, TR::TreeTop* cons
       }
    }
 
-/**
- * @brief Perform lowering related to Valhalla value types
- *
- */
-void
-TR::TreeLowering::lowerValueTypeOperations(TR::PreorderNodeIterator& nodeIter, TR::Node* node, TR::TreeTop* tt)
-   {
-   TR::SymbolReferenceTable * symRefTab = comp()->getSymRefTab();
 
-   if (node->getOpCode().isCall() &&
-         symRefTab->isNonHelper(node->getSymbolReference(), TR::SymbolReferenceTable::objectEqualityComparisonSymbol))
+void
+TR::TreeLowering::Transformer::moveNodeToEndOfBlock(TR::Block* const block, TR::TreeTop* const tt, TR::Node* const node, bool isAddress)
+   {
+   TR::TreeTop* blockExit = block->getExit();
+   TR::TreeTop* iterTT = tt->getNextTreeTop();
+
+   if (iterTT != blockExit)
       {
-      // turn the non-helper call into a VM helper call
-      node->setSymbolReference(symRefTab->findOrCreateAcmpHelperSymbolRef());
-      static const bool disableAcmpFastPath =  NULL != feGetEnv("TR_DisableAcmpFastpath");
-      if (!disableAcmpFastPath)
+      if (trace())
          {
-         fastpathAcmpHelper(nodeIter, node, tt);
+         traceMsg(comp(), "Moving treetop containing node n%dn [%p] for helper call to end of prevBlock in preparation of final block split\n", tt->getNode()->getGlobalIndex(), tt->getNode());
          }
+
+      // Remove TreeTop for call node, and gather it and the treetops for stores that
+      // resulted from un-commoning in a TreeTop chain from tt to lastTTForCallBlock
+      tt->unlink(false);
+      TR::TreeTop* lastTTForCallBlock = tt;
+
+      while (iterTT != blockExit)
+         {
+         TR::TreeTop* nextTT = iterTT->getNextTreeTop();
+         TR::ILOpCodes op = iterTT->getNode()->getOpCodeValue();
+         bool opCodeCondition = false;
+
+         if (isAddress)
+            {
+            opCodeCondition = (op == TR::aRegStore || op == TR::astore);
+            }
+         else
+            {
+            opCodeCondition = (op == TR::iRegStore || op == TR::istore);
+            }
+
+         if (opCodeCondition && iterTT->getNode()->getFirstChild() == node)
+            {
+            if (trace())
+               {
+               traceMsg(comp(), "Moving treetop containing node n%dn [%p] for store of helper result to end of prevBlock in preparation of final block split\n", iterTT->getNode()->getGlobalIndex(), iterTT->getNode());
+               }
+
+            // Remove store node from prevBlock temporarily
+            iterTT->unlink(false);
+            lastTTForCallBlock->join(iterTT);
+            lastTTForCallBlock = iterTT;
+            }
+
+         iterTT = nextTT;
+         }
+
+      // Move the treetops that were gathered for the call and any stores of the
+      // result to the end of the block in preparation for the split of the call block
+      blockExit->getPrevTreeTop()->join(tt);
+      lastTTForCallBlock->join(blockExit);
       }
-   else if (node->getOpCodeValue() == TR::ArrayStoreCHK)
-      {
-      lowerArrayStoreCHK(node, tt);
-      }
+   }
+
+TR::Block*
+TR::TreeLowering::Transformer::splitForFastpath(TR::Block* const block, TR::TreeTop* const splitPoint, TR::Block* const targetBlock)
+   {
+   TR::CFG* const cfg = comp()->getFlowGraph();
+   TR::Block* const newBlock = block->split(splitPoint, cfg);
+   newBlock->setIsExtensionOfPreviousBlock(true);
+   cfg->addEdge(block, targetBlock);
+   return newBlock;
    }
 
 /**
@@ -227,6 +269,16 @@ TR::TreeLowering::splitForFastpath(TR::Block* const block, TR::TreeTop* const sp
    cfg->addEdge(block, targetBlock);
    return newBlock;
    }
+
+class AcmpTransformer: public TR::TreeLowering::Transformer
+   {
+   public:
+   explicit AcmpTransformer(TR::TreeLowering* opt)
+      : TR::TreeLowering::Transformer(opt)
+      {}
+
+   void lower(TR::Node* const node, TR::TreeTop* const tt) override;
+   };
 
 /**
  * @brief Add checks to skip (fast-path) acmpHelper call
@@ -356,9 +408,9 @@ TR::TreeLowering::splitForFastpath(TR::Block* const block, TR::TreeTop* const sp
  *
  */
 void
-TR::TreeLowering::fastpathAcmpHelper(TR::PreorderNodeIterator& nodeIter, TR::Node * const node, TR::TreeTop * const tt)
+AcmpTransformer::lower(TR::Node * const node, TR::TreeTop * const tt)
    {
-   TR::Compilation* comp = self()->comp();
+   TR::Compilation* comp = this->comp();
    TR::CFG* cfg = comp->getFlowGraph();
    cfg->invalidateStructure();
 
@@ -515,14 +567,6 @@ TR::TreeLowering::fastpathAcmpHelper(TR::PreorderNodeIterator& nodeIter, TR::Nod
    if (trace())
       traceMsg(comp, "Call node isolated in block_%d by splitPostGRA\n", callBlock->getNumber());
 
-   // Force nodeIter to first TreeTop of next block so that
-   // moving callBlock won't cause problems while iterating
-   while (nodeIter.currentTree() != targetBlock->getEntry())
-      ++nodeIter;
-
-   if (trace())
-      traceMsg(comp, "FORCED treeLowering ITERATOR TO POINT TO NODE n%unn\n", nodeIter.currentNode()->getGlobalIndex());
-
    // Move call block out of line.
    // The CFG edge that exists from prevBlock to callBlock is kept because
    // it will be needed once the branch for the fastpath gets added.
@@ -577,6 +621,16 @@ TR::TreeLowering::fastpathAcmpHelper(TR::PreorderNodeIterator& nodeIter, TR::Nod
       }
    }
 
+class ArrayStoreCHKTransformer: public TR::TreeLowering::Transformer
+   {
+   public:
+   explicit ArrayStoreCHKTransformer(TR::TreeLowering* opt)
+      : TR::TreeLowering::Transformer(opt)
+      {}
+
+   void lower(TR::Node* const node, TR::TreeTop* const tt) override;
+   };
+
 /**
  * If value types are enabled, and the value that is being assigned to the array
  * element might be a null reference, lower the ArrayStoreCHK by splitting the
@@ -587,7 +641,7 @@ TR::TreeLowering::fastpathAcmpHelper(TR::PreorderNodeIterator& nodeIter, TR::Nod
  * @param tt is the treetop at the root of the tree ancoring the current node
  */
 void
-TR::TreeLowering::lowerArrayStoreCHK(TR::Node *node, TR::TreeTop *tt)
+ArrayStoreCHKTransformer::lower(TR::Node* const node, TR::TreeTop* const tt)
    {
    // Pattern match the ArrayStoreCHK operands to get the source of the assignment
    // (sourceChild) and the array to which an element will have a value assigned (destChild)
@@ -717,5 +771,33 @@ TR::TreeLowering::lowerArrayStoreCHK(TR::Node *node, TR::TreeTop *tt)
       nullCheckBlock->setIsExtensionOfPreviousBlock(true);
 
       cfg->addEdge(prevBlock, arrayStoreCheckBlock);
+      }
+   }
+
+/**
+ * @brief Perform lowering related to Valhalla value types
+ *
+ */
+void
+TR::TreeLowering::lowerValueTypeOperations(TransformationManager& transformations, TR::Node* node, TR::TreeTop* tt)
+   {
+   TR::SymbolReferenceTable * symRefTab = comp()->getSymRefTab();
+
+   if (node->getOpCode().isCall())
+      {
+      if (symRefTab->isNonHelper(node->getSymbolReference(), TR::SymbolReferenceTable::objectEqualityComparisonSymbol))
+         {
+         // turn the non-helper call into a VM helper call
+         node->setSymbolReference(symRefTab->findOrCreateAcmpHelperSymbolRef());
+         static const bool disableAcmpFastPath =  NULL != feGetEnv("TR_DisableVT_AcmpFastpath");
+         if (!disableAcmpFastPath)
+            {
+            transformations.addTransformation(getTransformer<AcmpTransformer>(), node, tt);
+            }
+         }
+      }
+   else if (node->getOpCodeValue() == TR::ArrayStoreCHK)
+      {
+      transformations.addTransformation(getTransformer<ArrayStoreCHKTransformer>(), node, tt);
       }
    }
