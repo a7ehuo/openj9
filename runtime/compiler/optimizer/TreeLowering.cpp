@@ -604,7 +604,7 @@ TR::TreeLowering::fastpathAcmpHelper(TR::PreorderNodeIterator& nodeIter, TR::Nod
    // Move exit GlRegDeps in callBlock.
    // The correct dependencies should have been inserted by splitPostGRA,
    // so they just need to be moved from the BBEnd to the Goto.
-   if (callBlock->getEntry()->getNode()->getNumChildren() > 0)
+   if (callBlock->getExit()->getNode()->getNumChildren() > 0)
       {
       auto* const bbEnd = callBlock->getExit()->getNode();
       auto* glRegDeps = bbEnd->getChild(0);
@@ -703,13 +703,7 @@ TR::TreeLowering::lowerArrayStoreCHK(TR::Node *node, TR::TreeTop *tt)
       //   |     aload <value>              |
       //   +--------------------------------+
       //
-      TR::SymbolReference *vftSymRef = comp()->getSymRefTab()->findOrCreateVftSymbolRef();
-      TR::SymbolReference *arrayCompSymRef = comp()->getSymRefTab()->findOrCreateArrayComponentTypeSymbolRef();
-
-      TR::Node *vft = TR::Node::createWithSymRef(node, TR::aloadi, 1, anchoredArrayTT->getNode()->getFirstChild(), vftSymRef);
-      TR::Node *arrayCompClass = TR::Node::createWithSymRef(node, TR::aloadi, 1, vft, arrayCompSymRef);
-      TR::Node *testIsValueTypeNode = comp()->fej9()->testIsClassValueType(arrayCompClass);
-      TR::Node *ifNode = TR::Node::createif(TR::ificmpeq, testIsValueTypeNode, TR::Node::iconst(node, 0));
+      TR::Node *ifNode = comp()->fej9()->checkArrayCompClassValueType(anchoredArrayTT->getNode()->getFirstChild(), TR::ificmpeq);
 
       TR::Node *passThru  = TR::Node::create(node, TR::PassThrough, 1, sourceChild);
       TR::ResolvedMethodSymbol *currentMethod = comp()->getMethodSymbol();
@@ -758,7 +752,7 @@ TR::TreeLowering::lowerArrayStoreCHK(TR::Node *node, TR::TreeTop *tt)
    }
 
 static TR::Node *
-cloneAndTweakGlRegDepsFromBBExit(TR::Node *bbExitNode, TR::Compilation *comp, bool enableTrace, TR_GlobalRegisterNumber registerToSkip = -1)
+cloneAndTweakGlRegDepsFromBBExit(TR::Node *bbExitNode, TR::Compilation *comp, bool enableTrace, TR_GlobalRegisterNumber registerToSkip)
    {
    TR::Node *tmpGlRegDeps = NULL;
    if (bbExitNode->getNumChildren() > 0)
@@ -1084,16 +1078,9 @@ TR::TreeLowering::lowerLoadArrayElement(TR::PreorderNodeIterator& nodeIter, TR::
 
    ///////////////////////////////////////
    // 9. Create ificmpne node that checks classFlags
-   TR::SymbolReference *vftSymRef = comp->getSymRefTab()->findOrCreateVftSymbolRef();
-   TR::SymbolReference *arrayCompSymRef = comp->getSymRefTab()->findOrCreateArrayComponentTypeSymbolRef();
-   TR::SymbolReference *classFlagsSymRef = comp->getSymRefTab()->findOrCreateClassFlagsSymbolRef();
-
-   TR::Node *vft = TR::Node::createWithSymRef(node, TR::aloadi, 1, anchoredArrayBaseAddressNode, vftSymRef);
-   TR::Node *arrayCompClass = TR::Node::createWithSymRef(node, TR::aloadi, 1, vft, arrayCompSymRef);
-   TR::Node *testIsValueTypeNode = comp->fej9()->testIsClassValueType(arrayCompClass);
 
    // The branch destination will be set up later
-   TR::Node *ifNode = TR::Node::createif(TR::ificmpne, testIsValueTypeNode, TR::Node::iconst(node, 0));
+   TR::Node *ifNode = comp->fej9()->checkArrayCompClassValueType(anchoredArrayBaseAddressNode, TR::ificmpne);
 
    // Copy register dependency to the ificmpne node that's being appended to the current block
    copyRegisterDependency(arrayElementLoadBlock->getExit()->getNode(), ifNode);
@@ -1319,7 +1306,7 @@ TR::TreeLowering::lowerStoreArrayElement(TR::PreorderNodeIterator& nodeIter, TR:
 
    ///////////////////////////////////////
    // 3. Clone the GlRegDeps of the originalBlock's BBExit
-   TR::Node *tmpGlRegDeps = cloneAndTweakGlRegDepsFromBBExit(originalBlock->getExit()->getNode(), comp, -1 /* registerToSkip */);
+   TR::Node *tmpGlRegDeps = cloneAndTweakGlRegDepsFromBBExit(originalBlock->getExit()->getNode(), comp, enableTrace, -1 /* registerToSkip */);
 
 
    ///////////////////////////////////////
@@ -1390,6 +1377,10 @@ TR::TreeLowering::lowerStoreArrayElement(TR::PreorderNodeIterator& nodeIter, TR:
    arraylengthNode->setArrayStride(dataWidth);
 
    //ILGen for array element store already generates a NULLCHK
+   //If the helper call node is anchored under NULLCHK due to compactNullChecks, the NULLCHK is split into the helper call block.
+   //The NULLCHK is required for regular array block.
+   if (!anchoredArrayBaseAddressNode->isNonNull() && tt->getNode()->getOpCodeValue() == TR::NULLCHK)
+      arrayStoreCHKTT->insertBefore(TR::TreeTop::create(comp, TR::Node::createWithSymRef(TR::NULLCHK, 1, 1, arraylengthNode, comp->getSymRefTab()->findOrCreateNullCheckSymbolRef(comp->getMethodSymbol()))));
 
    arrayStoreCHKTT->insertBefore(TR::TreeTop::create(comp, TR::Node::createWithSymRef(TR::BNDCHK, 2, 2, arraylengthNode, anchoredElementIndexNode, comp->getSymRefTab()->findOrCreateArrayBoundsCheckSymbolRef(comp->getMethodSymbol()))));
 
@@ -1401,16 +1392,9 @@ TR::TreeLowering::lowerStoreArrayElement(TR::PreorderNodeIterator& nodeIter, TR:
 
    ///////////////////////////////////////
    // 8. Create the ificmpne node that checks classFlags
-   TR::SymbolReference *vftSymRef = comp->getSymRefTab()->findOrCreateVftSymbolRef();
-   TR::SymbolReference *arrayCompSymRef = comp->getSymRefTab()->findOrCreateArrayComponentTypeSymbolRef();
-   TR::SymbolReference *classFlagsSymRef = comp->getSymRefTab()->findOrCreateClassFlagsSymbolRef();
-
-   TR::Node *vft = TR::Node::createWithSymRef(node, TR::aloadi, 1, anchoredArrayBaseAddressNode, vftSymRef);
-   TR::Node *arrayCompClass = TR::Node::createWithSymRef(node, TR::aloadi, 1, vft, arrayCompSymRef);
-   TR::Node *testIsValueTypeNode = comp->fej9()->testIsClassValueType(arrayCompClass);
 
    // The branch destination will be set up later
-   TR::Node *ifNode = TR::Node::createif(TR::ificmpne, testIsValueTypeNode, TR::Node::iconst(node, 0));
+   TR::Node *ifNode = comp->fej9()->checkArrayCompClassValueType(anchoredArrayBaseAddressNode, TR::ificmpne);
 
    // Copy register dependency to the ificmpne node that's being appended to the current block
    copyRegisterDependency(arrayElementStoreBlock->getExit()->getNode(), ifNode);
