@@ -1574,18 +1574,21 @@ J9::ValuePropagation::isArrayCompTypeValueType(TR::VPConstraint *arrayConstraint
          {
          int32_t len;
          const char *sig = arrayConstraint->getClassSignature(len);
-
-         // If the array's class is a fixed array of java/lang/Object, the
-         // component type is not a value type (though it can still hold
-         // references to instances of value types).
-         if (sig && arrayConstraint->isFixedClass() && sig[0] == '[' && len == 19
+         // If the array is an array of java/lang/Object, and it is fixed to
+         // that type, the component type is not a value type (though it
+         // can still hold references to instances of value types).  If it is
+         // an array of java/lang/Object, but not fixed to that type, the
+         // component type could sometimes be a value type.  If it is
+         // not an array of java/lang/Object, we know the component
+         // must be a concrete class that is not a value type.
+         if (sig && sig[0] == '[' && len == 19
              && !strncmp(sig, "[Ljava/lang/Object;", 19))
             {
-            isValueType = TR_no;
+            isValueType = (arrayConstraint->isFixedClass()) ? TR_no : TR_maybe;
             }
          else
             {
-            isValueType = TR_maybe;
+            isValueType = TR_no;
             }
          }
       }
