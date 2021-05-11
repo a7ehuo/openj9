@@ -356,6 +356,7 @@ AcmpTransformer::lower(TR::Node * const node, TR::TreeTop * const tt)
    {
    static char *skipEqualityFastPath = feGetEnv("TR_VT_ACMP_SkipEqualityFastPath");
    static char *checkRHSNullFirst = feGetEnv("TR_VT_ACMP_CheckRHSNullBeforeLHS");
+   static char *checkNonNull = feGetEnv("TR_VT_ACMP_CheckNonNull");
 
    TR::Compilation* comp = this->comp();
    TR::CFG* cfg = comp->getFlowGraph();
@@ -452,7 +453,7 @@ AcmpTransformer::lower(TR::Node * const node, TR::TreeTop * const tt)
       TR_ASSERT_FATAL_WITH_NODE(anchoredNode, false, "Anchored call has been turned into unexpected opcode\n");
 
 if (!skipEqualityFastPath)
-{
+   {
    tt->insertBefore(TR::TreeTop::create(comp, storeNode));
 
    // Insert fastpath for lhs == rhs (reference comparison), taking care to set the
@@ -469,7 +470,7 @@ if (!skipEqualityFastPath)
    callBlock = splitForFastpath(callBlock, tt, targetBlock);
    if (trace())
       traceMsg(comp, "Added check node n%un; call node is now in block_%d\n", ifacmpeqNode->getGlobalIndex(), callBlock->getNumber());
-}
+   }
 
    if (!performTransformation(comp, "%sInserting fastpath for lhs == NULL\n", optDetailString()))
       return;
@@ -488,6 +489,11 @@ if (!skipEqualityFastPath)
 
    // Using a similar strategy as above, insert check for lhs == NULL.
    auto* const nullConst = TR::Node::aconst(0);
+   bool substituteRegDepForSotreNode = false;
+
+if (!checkNonNull || !arg1->isNonNull())
+   {
+   substituteRegDepForSotreNode = true;
    auto* const checkLhsNull = TR::Node::createif(TR::ifacmpeq, anchoredCallArg1TT->getNode()->getFirstChild(), nullConst, targetBlock->getEntry());
    exitGlRegDeps = copyBranchGlRegDepsAndSubstitute(checkLhsNull, exitGlRegDeps, regDepForStoreNode);
    TR::TreeTop *checkLHSNullTT = tt->insertBefore(TR::TreeTop::create(comp, checkLhsNull));
@@ -499,12 +505,22 @@ if (!skipEqualityFastPath)
    callBlock = splitForFastpath(callBlock, tt, targetBlock);
    if (trace())
       traceMsg(comp, "Added check node n%un; call node is now in block_%d\n", checkLhsNull->getGlobalIndex(), callBlock->getNumber());
+   }
 
    if (!performTransformation(comp, "%sInserting fastpath for rhs == NULL\n", optDetailString()))
       return;
 
+if (!checkNonNull || !arg2->isNonNull())
+   {
    auto* const checkRhsNull = TR::Node::createif(TR::ifacmpeq, anchoredCallArg2TT->getNode()->getFirstChild(), nullConst, targetBlock->getEntry());
+   if (substituteRegDepForSotreNode)
    copyBranchGlRegDepsAndSubstitute(checkRhsNull, exitGlRegDeps, NULL);
+   else
+      {
+      substituteRegDepForSotreNode = true;
+      exitGlRegDeps = copyBranchGlRegDepsAndSubstitute(checkRhsNull, exitGlRegDeps, regDepForStoreNode);
+      }
+
    TR::TreeTop *checkRHSNullTT = tt->insertBefore(TR::TreeTop::create(comp, checkRhsNull));
 
    const char *secondNullTestCounterName = TR::DebugCounter::debugCounterName(comp, "vt-helper/inline-check/%s-is-null/isNonNull=%d/acmp/(%s)/bc=%d",
@@ -514,6 +530,7 @@ if (!skipEqualityFastPath)
    callBlock = splitForFastpath(callBlock, tt, targetBlock);
    if (trace())
       traceMsg(comp, "Added check node n%un; call node is now in block_%d\n", checkRhsNull->getGlobalIndex(), callBlock->getNumber());
+   }
 
    if (!performTransformation(comp, "%sInserting fastpath for lhs is VT\n", optDetailString()))
       return;
@@ -523,7 +540,10 @@ if (!skipEqualityFastPath)
    auto* const lhsVft = TR::Node::createWithSymRef(node, TR::aloadi, 1, anchoredCallArg1TT->getNode()->getFirstChild(), vftSymRef);
    auto* const isLhsValueType = comp->fej9()->testIsClassValueType(lhsVft);
    auto* const checkLhsIsVT = TR::Node::createif(TR::ificmpeq, isLhsValueType, storeNode->getFirstChild(), targetBlock->getEntry());
+   if (substituteRegDepForSotreNode)
    copyBranchGlRegDepsAndSubstitute(checkLhsIsVT, exitGlRegDeps, NULL);
+   else
+   exitGlRegDeps = copyBranchGlRegDepsAndSubstitute(checkLhsIsVT, exitGlRegDeps, regDepForStoreNode);
    TR::TreeTop *checkLHSIsVTTT = tt->insertBefore(TR::TreeTop::create(comp, checkLhsIsVT));
 
    const char *valueTypeTestCounterName = TR::DebugCounter::debugCounterName(comp, "vt-helper/inline-check/either-op-is-VT/acmp/(%s)/bc=%d",
