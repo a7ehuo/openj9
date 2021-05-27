@@ -134,6 +134,7 @@ public:
       Com_ibm_oti_vm_VM_J9_JAVA_CLASS_RAM_SHAPE_SHIFT,
       Com_ibm_oti_vm_VM_OBJECT_HEADER_SHAPE_MASK,
       Com_ibm_oti_vm_VM_ADDRESS_SIZE,
+      Com_ibm_rules_engine_fastpath_runtime_RuleInstanceImpl_bindings,
       Java_io_ByteArrayOutputStream_count,
       Java_lang_J9VMInternals_jitHelpers,
       Java_lang_ref_SoftReference_age,

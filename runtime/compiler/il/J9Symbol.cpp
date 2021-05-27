@@ -108,6 +108,7 @@
       {r(TR::Symbol::Com_ibm_oti_vm_VM_J9_JAVA_CLASS_RAM_SHAPE_SHIFT,"com/ibm/oti/vm/VM","J9AccClassRAMShapeShift", "I")},
       {r(TR::Symbol::Com_ibm_oti_vm_VM_OBJECT_HEADER_SHAPE_MASK,"com/ibm/oti/vm/VM","OBJECT_HEADER_SHAPE_MASK", "I")},
       {r(TR::Symbol::Com_ibm_oti_vm_VM_ADDRESS_SIZE,"com/ibm/oti/vm/VM","ADDRESS_SIZE", "I")},
+      {r(TR::Symbol::Com_ibm_rules_engine_fastpath_runtime_RuleInstanceImpl_bindings,"com/ibm/rules/engine/fastpath/runtime/RuleInstanceImpl","bindings", "[Ljava/lang/Object;")},
       {TR::Symbol::UnknownField}
       };
 
