@@ -3495,7 +3495,7 @@ TR_J9ByteCodeIlGenerator::loadInvokeCacheArrayElements(TR::SymbolReference *tabl
       // the object reference of the appendix object from the invokeCacheArray entry
       TR_ResolvedJ9Method* owningMethod = static_cast<TR_ResolvedJ9Method *>(_methodSymbol->getResolvedMethod());
       TR::Node * appendixNode = _stack->top();
-      TR::SymbolReference * appendixSymRef = 
+      TR::SymbolReference * appendixSymRef =
          fej9()->refineInvokeCacheElementSymRefWithKnownObjectIndex(
                   comp(),
                   appendixNode->getSymbolReference(),
@@ -7604,7 +7604,9 @@ TR_J9ByteCodeIlGenerator::storeArrayElement(TR::DataType dataType, TR::ILOpCodes
             }
          }
 
-      if (!canSkipThisArrayStoreCheck)
+      static char *forceArrayStoreCheckInAASTOREIlGen = feGetEnv("TR_ForceArrayStoreCheckInAASTOREIlGen");
+
+      if (!canSkipThisArrayStoreCheck || forceArrayStoreCheckInAASTOREIlGen)
          {
          symRef = symRefTab()->findOrCreateTypeCheckArrayStoreSymbolRef(_methodSymbol);
          TR_ASSERT(generateWriteBarrier,"TR::ArrayStoreCHK needs write barrier support.");
