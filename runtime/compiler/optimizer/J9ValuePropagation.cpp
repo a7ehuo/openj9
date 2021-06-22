@@ -613,6 +613,16 @@ static TR_YesNoMaybe isValue(TR::VPConstraint *constraint)
    TR::Compilation *comp = TR::comp();
    TR_OpaqueClassBlock *clazz = type->getClass();
 
+   //static char *checkIsClassArray = feGetEnv("TR_CheckIsClassArray");
+
+   if (/* checkIsClassArray && */ TR::Compiler->cls.isClassArray(comp, clazz))
+      TR_ASSERT_FATAL(TR::Compiler->cls.classHasIdentity(clazz), "isValue: isClassArray but classHasIdentity is not set. clazz %p\n", clazz);
+
+   if (TR::Compiler->cls.classHasIdentity(clazz))
+      {
+      return TR_no;
+      }
+
    if (clazz == comp->getObjectClassPointer())
       {
       return type->isFixedClass() ? TR_no : TR_maybe;
@@ -1560,6 +1570,7 @@ J9::ValuePropagation::isArrayCompTypeValueType(TR::VPConstraint *arrayConstraint
    //
    //   - Is no information available about the component type of the array?
    //     If not, assume it might be a value type.
+   //   - Is the component type definitely a identity type?
    //   - Is the component type definitely a value type?
    //   - Is the component type an array class (i.e., is this an array of
    //     arrays)?  If so, it's definitely not a value type.
@@ -1584,6 +1595,16 @@ J9::ValuePropagation::isArrayCompTypeValueType(TR::VPConstraint *arrayConstraint
    if (!arrayComponentClass)
       {
       return TR_maybe;
+      }
+
+   //static char *checkIsClassArray = feGetEnv("TR_CheckIsClassArray");
+
+   if (/* checkIsClassArray && */ TR::Compiler->cls.isClassArray(comp(), arrayComponentClass))
+      TR_ASSERT_FATAL(TR::Compiler->cls.classHasIdentity(arrayComponentClass), "isArrayCompTypeValueType: isClassArray but classHasIdentity is not set: %p\n", arrayComponentClass);
+
+   if (TR::Compiler->cls.classHasIdentity(arrayComponentClass))
+      {
+      return TR_no;
       }
 
    if (TR::Compiler->cls.isValueTypeClass(arrayComponentClass))
