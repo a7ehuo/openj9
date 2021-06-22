@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2020 IBM Corp. and others
+ * Copyright (c) 2000, 2021 IBM Corp. and others
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -94,6 +94,17 @@ public:
    bool isValueTypeClass(TR_OpaqueClassBlock *);
    bool isValueTypeClassFlattened(TR_OpaqueClassBlock *clazz);
    bool isValueBasedOrValueTypeClass(TR_OpaqueClassBlock *);
+   /** \brief
+    *	    Checks whether a class implements `IndentityObject`/`IdentityInterface`
+    *
+    *  \param clazz
+    *     The class that is to be checked
+    *
+    *  \return
+    *    `true` if the class implements `IndentityObject`/`IdentityInterface`;
+    *    `false` otherwise (that is, if the class is a value type)
+    */
+   bool classHasIdentity(TR_OpaqueClassBlock *clazz);
 
    /**
     * \brief
