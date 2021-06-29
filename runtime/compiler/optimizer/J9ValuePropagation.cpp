@@ -1750,6 +1750,7 @@ J9::ValuePropagation::doDelayedTransformations()
          else
             {
             callTree->setNode(elementStoreNode);
+            elementStoreNode->incReferenceCount();
             }
 
          // The old anchor node is no longer needed.  Remove what was previously a child
