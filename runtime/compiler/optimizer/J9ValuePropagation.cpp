@@ -876,6 +876,26 @@ J9::ValuePropagation::constrainRecognizedMethod(TR::Node *node)
    // This switch is used for transformations with AOT support
    switch (rm)
       {
+      case TR::java_util_ArrayList_grow:
+         {
+         static char *recognizeArrayListThings = feGetEnv("TR_VPRecognizeArrayList");
+
+         // Only constrain the call in the last run of vp to avoid adding the candidate twice if the call is inside a loop
+         if (!lastTimeThrough() || !recognizeArrayListThings)
+            {
+            return;
+            }
+
+         TR_ResolvedMethod* owningMethod = node->getSymbolReference()->getOwningMethod(comp());
+         TR_OpaqueClassBlock *classObject = fe()->getClassFromSignature("[Ljava/lang/Object;", 19, owningMethod);
+
+         if (classObject)
+            {
+            addGlobalConstraint(node, TR::VPFixedClass::create(this, classObject));
+            addGlobalConstraint(node, TR::VPNonNullObject::create(this));
+            }
+         break;
+         }
       case TR::java_lang_Class_isInterface:
          {
          // Only constrain the call in the last run of vp to avoid adding the candidate twice if the call is inside a loop
