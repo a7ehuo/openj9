@@ -653,6 +653,14 @@ static bool owningMethodDoesNotContainStoreChecks(OMR::ValuePropagation *vp, TR:
    return false;
    }
 
+static bool owningMethodDoesNotContainBoundChecks(OMR::ValuePropagation *vp, TR::Node *node)
+   {
+   TR::ResolvedMethodSymbol *method = vp->comp()->getOwningMethodSymbol(node->getOwningMethod());
+   if (method && method->skipBoundChecks())
+      return true;
+   return false;
+   }
+
 void
 J9::ValuePropagation::constrainRecognizedMethod(TR::Node *node)
    {
@@ -795,10 +803,16 @@ J9::ValuePropagation::constrainRecognizedMethod(TR::Node *node)
          flagsForTransform.set(ValueTypesHelperCallTransform::InsertDebugCounter);
 
          static char *enableVTCheckOwningMethodSkipsStoreChecks = feGetEnv("TR_EnableVTCheckOwningMethodSkipsStoreChecks");
+         static char *enableVTCheckOwningMethodSkipsBoundChecks = feGetEnv("TR_EnableVTCheckOwningMethodSkipsBoundChecks");
 
          if (isStoreFlattenableArrayElement && (!enableVTCheckOwningMethodSkipsStoreChecks || !owningMethodDoesNotContainStoreChecks(this, node)))
             {
             flagsForTransform.set(ValueTypesHelperCallTransform::RequiresStoreCheck);
+            }
+
+         if (!enableVTCheckOwningMethodSkipsBoundChecks || !owningMethodDoesNotContainBoundChecks(this, node))
+            {
+            flagsForTransform.set(ValueTypesHelperCallTransform::RequiresBoundCheck);
             }
 
          _valueTypesHelperCallsToBeFolded.add(
@@ -1710,6 +1724,7 @@ J9::ValuePropagation::doDelayedTransformations()
       const bool isStore = callToTransform->_flags.testAny(ValueTypesHelperCallTransform::IsArrayStore);
       const bool isCompare = callToTransform->_flags.testAny(ValueTypesHelperCallTransform::IsRefCompare);
       const bool needsStoreCheck = callToTransform->_flags.testAny(ValueTypesHelperCallTransform::RequiresStoreCheck);
+      const bool needsBoundCheck = callToTransform->_flags.testAny(ValueTypesHelperCallTransform::RequiresBoundCheck);
 
       // performTransformation was already checked for comparison non-helper call
       // Only need to check for array element load or store helper calls
@@ -1755,10 +1770,12 @@ J9::ValuePropagation::doDelayedTransformations()
       TR::Node *arrayLengthNode = TR::Node::create(callNode, TR::arraylength, 1, arrayRefNode);
       arrayLengthNode->setArrayStride(width);
 
-      TR::Node *bndChkNode = TR::Node::createWithSymRef(TR::BNDCHK, 2, 2, arrayLengthNode, indexNode,
-                                          comp()->getSymRefTab()->findOrCreateArrayBoundsCheckSymbolRef(comp()->getMethodSymbol()));
-
-      callTree->insertBefore(TR::TreeTop::create(comp(), bndChkNode));
+      if (needsBoundCheck)
+         {
+         TR::Node *bndChkNode = TR::Node::createWithSymRef(TR::BNDCHK, 2, 2, arrayLengthNode, indexNode,
+                                             comp()->getSymRefTab()->findOrCreateArrayBoundsCheckSymbolRef(comp()->getMethodSymbol()));
+         callTree->insertBefore(TR::TreeTop::create(comp(), bndChkNode));
+         }
 
       TR::SymbolReference *elementSymRef = comp()->getSymRefTab()->findOrCreateArrayShadowSymbolRef(TR::Address, arrayRefNode);
 
