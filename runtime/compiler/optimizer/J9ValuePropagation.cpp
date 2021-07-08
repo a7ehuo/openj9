@@ -802,6 +802,7 @@ J9::ValuePropagation::constrainRecognizedMethod(TR::Node *node)
 
          static char *enableVTCheckOwningMethodSkipsStoreChecks = feGetEnv("TR_EnableVTCheckOwningMethodSkipsStoreChecks");
          static char *enableVTCheckOwningMethodSkipsBoundChecks = feGetEnv("TR_EnableVTCheckOwningMethodSkipsBoundChecks");
+         static char *disableNonNullableArrayNullStoreCheck = feGetEnv("TR_DisableNonNullableArrayNullStoreCheck");
 
          if (isStoreFlattenableArrayElement && (!enableVTCheckOwningMethodSkipsStoreChecks || !owningMethodDoesNotContainStoreChecks(this, node)))
             {
@@ -815,7 +816,7 @@ J9::ValuePropagation::constrainRecognizedMethod(TR::Node *node)
                {
                flagsForTransform.set(ValueTypesHelperCallTransform::RequiresStoreCheck);
                }
-            else
+            else if (!disableNonNullableArrayNullStoreCheck)
                {
                flagsForTransform.set(ValueTypesHelperCallTransform::RequiresStoreAndNullCheck);
                }
