@@ -2283,6 +2283,11 @@ TR::Register *J9::TreeEvaluator::resolveCHKEvaluator(TR::Node *node, TR::CodeGen
 bool
 J9::TreeEvaluator::requireHelperCallValueTypeAllocation(TR::Node *node, TR::CodeGenerator *cg)
    {
+   const static char *disableInliningAllocationForVT = feGetEnv("TR_DisableInliningAllocationForVT");
+
+   if (disableInliningAllocationForVT)
+      return true;
+
    if (TR::Compiler->om.areValueTypesEnabled() && node->getOpCodeValue() == TR::New)
       {
       TR::Compilation *comp = cg->comp();

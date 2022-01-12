@@ -835,6 +835,15 @@ J9::ValuePropagation::constrainRecognizedMethod(TR::Node *node)
          canTransformNotFlattenedVTArrayElementLoadStore = true;
          }
 
+      const static char *disableXformFlattenedArrayElementLoadStore = feGetEnv("TR_DisableXformFlattenedArrayElementLoadStore");
+      const static char *disableXformNotFlattenedVTArrayElementLoadStore = feGetEnv("TR_DisableXformNotFlattenedVTArrayElementLoadStore");
+
+      if (disableXformFlattenedArrayElementLoadStore)
+         canTransformFlattenedArrayElementLoadStore = false;
+
+      if (disableXformNotFlattenedVTArrayElementLoadStore)
+         canTransformNotFlattenedVTArrayElementLoadStore = false;
+
       if (canTransformFlattenedArrayElementLoadStore)
          {
          flags8_t flagsForTransform(isLoadFlattenableArrayElement ? ValueTypesHelperCallTransform::IsArrayLoad
