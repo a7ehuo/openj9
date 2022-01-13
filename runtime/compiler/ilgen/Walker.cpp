@@ -5320,6 +5320,7 @@ TR_J9ByteCodeIlGenerator::loadFlattenableInstance(int32_t cpIndex)
 
    TR::Node * newValueNode = genNodeAndPopChildren(TR::newvalue, flattenedFieldCount + 1, symRefTab()->findOrCreateNewValueSymbolRef(_methodSymbol));
    newValueNode->setIdentityless(true);
+   _methodSymbol->setHasNews(true);
    genTreeTop(newValueNode);
    push(newValueNode);
    genFlush(0);
@@ -6404,6 +6405,8 @@ TR_J9ByteCodeIlGenerator::genWithField(TR::SymbolReference * symRef, TR_OpaqueCl
 
    TR::Node *newValueNode = genNodeAndPopChildren(TR::newvalue, fieldCount+1, symRefTab()->findOrCreateNewValueSymbolRef(_methodSymbol));
    newValueNode->setIdentityless(true);
+   _methodSymbol->setHasNews(true);
+
    genTreeTop(newValueNode);
    push(newValueNode);
    genFlush(0);
@@ -6573,6 +6576,7 @@ TR_J9ByteCodeIlGenerator::genFlattenableWithField(uint16_t fieldCpIndex, TR_Opaq
 
       TR::Node *newValueNode = genNodeAndPopChildren(TR::newvalue, fieldCount+1, symRefTab()->findOrCreateNewValueSymbolRef(_methodSymbol));
       newValueNode->setIdentityless(true);
+      _methodSymbol->setHasNews(true);
       genTreeTop(newValueNode);
       push(newValueNode);
       genFlush(0);
@@ -6707,6 +6711,8 @@ TR_J9ByteCodeIlGenerator::genDefaultValue(TR_OpaqueClassBlock *valueTypeClass)
 
          newValueNode = genNodeAndPopChildren(TR::newvalue, fieldCount+1, symRefTab()->findOrCreateNewValueSymbolRef(_methodSymbol));
          newValueNode->setIdentityless(true);
+
+         _methodSymbol->setHasNews(true);
       }
 
    genTreeTop(newValueNode);
