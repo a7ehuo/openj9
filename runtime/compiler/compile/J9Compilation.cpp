@@ -591,7 +591,7 @@ J9::Compilation::canAllocateInlineOnStack(TR::Node* node, TR_OpaqueClassBlock* &
    if (self()->compileRelocatableCode())
       return -1;
 
-   if (node->getOpCodeValue() == TR::New)
+   if (node->getOpCodeValue() == TR::New || node->getOpCodeValue() == TR::newvalue)
       {
       J9Class* clazz = self()->fej9vm()->getClassForAllocationInlining(self(), node->getFirstChild()->getSymbolReference());
 
@@ -647,7 +647,7 @@ J9::Compilation::canAllocateInline(TR::Node* node, TR_OpaqueClassBlock* &classIn
 
    const bool areValueTypesEnabled = TR::Compiler->om.areValueTypesEnabled();
 
-   if (node->getOpCodeValue() == TR::New)
+   if (node->getOpCodeValue() == TR::New || node->getOpCodeValue() == TR::newvalue)
       {
 
       classRef    = node->getFirstChild();
