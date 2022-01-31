@@ -564,11 +564,13 @@ bool J9::ValuePropagation::transformUnsafeCopyMemoryCall(TR::Node *arraycopyNode
 /**
  * Determine whether the type is, or might be, a value type.
  * \param constraint The \ref TR::VPConstraint type constraint for a node
+ * \param clazz The \ref TR_OpaqueClassBlock type class of the constraint
+ * \param node The \ref TR::Node type node of the constraint
  * \returns \c TR_yes if the type is definitely a value type;\n
  *          \c TR_no if it is definitely not a value type; or\n
  *          \c TR_maybe otherwise.
  */
-static TR_YesNoMaybe isValue(TR::VPConstraint *constraint)
+static TR_YesNoMaybe isValue(TR::VPConstraint *constraint, TR_OpaqueClassBlock *& clazz, TR::Node *node)
    {
    // If there's no information is available about the class of the operand,
    // VP has to assume that it might be a value type
@@ -612,7 +614,15 @@ static TR_YesNoMaybe isValue(TR::VPConstraint *constraint)
    // any subtype of java/lang/Object, which includes all value types
    //
    TR::Compilation *comp = TR::comp();
-   TR_OpaqueClassBlock *clazz = type->getClass();
+   clazz = type->getClass();
+
+   if (node->getOpCodeValue() == TR::newvalue)
+      {
+      TR::Node *loadaddrNode = node->getFirstChild();
+
+      clazz = (TR_OpaqueClassBlock*)loadaddrNode->getSymbol()->castToStaticSymbol()->getStaticAddress();
+      return TR_yes;
+      }
 
    // No need to check array class type because array classes should be marked as having identity.
    if (TR::Compiler->cls.classHasIdentity(clazz))
@@ -684,10 +694,19 @@ J9::ValuePropagation::constrainRecognizedMethod(TR::Node *node)
       TR::VPConstraint *lhs = getConstraint(lhsNode, lhsGlobal);
       TR::VPConstraint *rhs = getConstraint(rhsNode, rhsGlobal);
 
-      const TR_YesNoMaybe isLhsValue = isValue(lhs);
-      const TR_YesNoMaybe isRhsValue = isValue(rhs);
+      bool transformObjectComp = false;
+      TR_OpaqueClassBlock *lhsClass = NULL;
+      TR_OpaqueClassBlock *rhsClass = NULL;
+      const TR_YesNoMaybe isLhsValue = isValue(lhs, lhsClass, lhsNode);
+      const TR_YesNoMaybe isRhsValue = isValue(rhs, rhsClass, rhsNode);
       const bool areSameRef = (getValueNumber(lhsNode) == getValueNumber(rhsNode))
                               || (lhs != NULL && rhs != NULL && lhs->mustBeEqual(rhs, this));
+
+      if (trace())
+         traceMsg(comp(), "%s: callNode n%dn: lhsNode n%dn (lhsClass 0x%p)(isVT %d)(lhs %p ValueNumber %d), rhsNode n%dn (rhsClass 0x%p)(isVT %d)(rhs %p ValueNumber %d), areSameRef %d\n",
+               __FUNCTION__, node->getGlobalIndex(),
+               lhsNode->getGlobalIndex(), lhsClass, (isLhsValue == TR_yes) ? 1 : 0, lhs, getValueNumber(lhsNode),
+               rhsNode->getGlobalIndex(), rhsClass, (isRhsValue == TR_yes) ? 1 : 0, rhs, getValueNumber(rhsNode), areSameRef);
 
       // Non-helper equality/inequality comparison call is not needed if
       // either operand is definitely not an instance of a value type or
@@ -724,9 +743,37 @@ J9::ValuePropagation::constrainRecognizedMethod(TR::Node *node)
             TR::Node *replacement = acmpHandler(this, node);
             TR_ASSERT_FATAL_WITH_NODE(node, replacement == node, "can't replace n%un here",
                   node->getGlobalIndex());
+
+            transformObjectComp = true;
             }
          }
-      else
+      else if (isLhsValue == TR_yes && isRhsValue == TR_yes)
+         {
+         const static char *disableXformInlineVTComparison = feGetEnv("TR_DisableXformInlineVTComparison");
+
+         if (!disableXformInlineVTComparison && (lhsClass == rhsClass))
+            {
+            const  TR::TypeLayout *lhsFieldTypeLayout = comp()->typeLayout(lhsClass);
+            size_t lhsfieldCount = lhsFieldTypeLayout->count();
+
+            if (lhsfieldCount == 1)
+               {
+               TR::DataType dataType = lhsFieldTypeLayout->entry(0)._datatype;
+               if (dataType.isIntegral()|| dataType.isDouble() || dataType.isFloat())
+                  {
+
+                  _valueTypesHelperCallsToBeFolded.add(
+                     new (trStackMemory()) ValueTypesHelperCallTransform(_curTree, node,
+                                                                        ValueTypesHelperCallTransform::IsSingleFieldVTCompare
+                                                                        | ValueTypesHelperCallTransform::InsertDebugCounter,
+                                                                        lhsClass));
+                  transformObjectComp = true;
+                  }
+               }
+            }
+         }
+
+      if (!transformObjectComp)
          {
          // Construct static debug counter to note failure to take advantage of
          // any VP constraint to eliminate this equality comparison non-helper call
@@ -794,7 +841,8 @@ J9::ValuePropagation::constrainRecognizedMethod(TR::Node *node)
          {
          storeValueNode = node->getChild(storeValueOpIndex);
          storeValueConstraint = getConstraint(storeValueNode, storeValueGlobal);
-         isStoreValueVT = isValue(storeValueConstraint);
+         TR_OpaqueClassBlock *tmpClazz = NULL;
+         isStoreValueVT = isValue(storeValueConstraint, tmpClazz, storeValueNode);
          }
 
       bool canTransformFlattenedArrayElementLoadStore = false;
@@ -835,12 +883,22 @@ J9::ValuePropagation::constrainRecognizedMethod(TR::Node *node)
          canTransformUnflattenedVTArrayElementLoadStore = true;
          }
 
+      const static char *disableXformFlattenedArrayElementLoadStore = feGetEnv("TR_DisableXformFlattenedArrayElementLoadStore");
+      const static char *disableXformUnflattenedVTArrayElementLoadStore = feGetEnv("TR_DisableXformUnflattenedVTArrayElementLoadStore");
+
+      if (disableXformFlattenedArrayElementLoadStore)
+         canTransformFlattenedArrayElementLoadStore = false;
+
+      if (disableXformUnflattenedVTArrayElementLoadStore)
+         canTransformUnflattenedVTArrayElementLoadStore = false;
+
       if (canTransformFlattenedArrayElementLoadStore)
          {
-         flags8_t flagsForTransform(isLoadFlattenableArrayElement ? ValueTypesHelperCallTransform::IsArrayLoad
-                                                                  : ValueTypesHelperCallTransform::IsArrayStore);
+         flags16_t flagsForTransform(isLoadFlattenableArrayElement ? ValueTypesHelperCallTransform::IsArrayLoad
+                                                                   : ValueTypesHelperCallTransform::IsArrayStore);
 
          flagsForTransform.set(ValueTypesHelperCallTransform::IsFlattenedElement);
+         flagsForTransform.set(ValueTypesHelperCallTransform::InsertDebugCounter);
 
          if (!owningMethodDoesNotContainBoundChecks(this, node))
             {
@@ -866,8 +924,8 @@ J9::ValuePropagation::constrainRecognizedMethod(TR::Node *node)
          // a delayed transformation to replace the helper call with inline code to
          // perform the array element access.
          //
-         flags8_t flagsForTransform(isLoadFlattenableArrayElement ? ValueTypesHelperCallTransform::IsArrayLoad
-                                                                  : ValueTypesHelperCallTransform::IsArrayStore);
+         flags16_t flagsForTransform(isLoadFlattenableArrayElement ? ValueTypesHelperCallTransform::IsArrayLoad
+                                                                   : ValueTypesHelperCallTransform::IsArrayStore);
          flagsForTransform.set(ValueTypesHelperCallTransform::InsertDebugCounter);
 
          if (isStoreFlattenableArrayElement && !owningMethodDoesNotContainStoreChecks(this, node))
@@ -2101,19 +2159,21 @@ J9::ValuePropagation::doDelayedTransformations()
       const bool isLoad = callToTransform->_flags.testAny(ValueTypesHelperCallTransform::IsArrayLoad);
       const bool isStore = callToTransform->_flags.testAny(ValueTypesHelperCallTransform::IsArrayStore);
       const bool isCompare = callToTransform->_flags.testAny(ValueTypesHelperCallTransform::IsRefCompare);
+      const bool isSingleFieldVTCompare = callToTransform->_flags.testAny(ValueTypesHelperCallTransform::IsSingleFieldVTCompare);
       const bool needsStoreCheck = callToTransform->_flags.testAny(ValueTypesHelperCallTransform::RequiresStoreCheck);
       const bool needsNullValueCheck = callToTransform->_flags.testAny(ValueTypesHelperCallTransform::RequiresNullValueCheck);
       const bool needsBoundCheck = callToTransform->_flags.testAny(ValueTypesHelperCallTransform::RequiresBoundCheck);
       const bool isFlattenedElement = callToTransform->_flags.testAny(ValueTypesHelperCallTransform::IsFlattenedElement);
 
-      // performTransformation was already checked for comparison non-helper call
-      // Only need to check for array element load or store helper calls
+      // performTransformation was already checked for non-VT comparison non-helper call
+      // Only need to check for array element load or store helper calls, or single field VT comparison
       if (!isCompare && !performTransformation(
                             comp(),
-                            "%s Replacing n%dn acall of <jit%sFlattenableArrayElement>\n",
+                            "%s Replacing n%dn %s\n",
                             OPT_DETAILS,
                             callNode->getGlobalIndex(),
-                            isLoad ? "Load" : "Store"))
+                            isSingleFieldVTCompare ? "none helper call <object{Inequality|Equality}Comparison>"
+                                 : (isLoad ? "acall of <jitLoadFlattenableArrayElement>" : "acall of <jitStoreFlattenableArrayElement>")))
          {
          continue;
          }
@@ -2131,6 +2191,53 @@ J9::ValuePropagation::doDelayedTransformations()
       // Transformation for comparison was already handled.  Just needed post-processing to be able to insert debug counter
       if (isCompare)
          {
+         continue;
+         }
+
+      if (isSingleFieldVTCompare)
+         {
+         const  TR::TypeLayout *fieldTypeLayout = comp()->typeLayout(callToTransform->_clazz);
+         size_t fieldCount = fieldTypeLayout->count();
+
+         if (fieldCount == 1)
+            {
+            TR::Node *lhsNode = callNode->getChild(0);
+            TR::Node *rhsNode = callNode->getChild(1);
+
+            const TR::TypeLayoutEntry &fieldEntry = fieldTypeLayout->entry(0);
+            const bool isObjectEqualityCompare = comp()->getSymRefTab()->isNonHelper(callNode->getSymbolReference(), TR::SymbolReferenceTable::objectEqualityComparisonSymbol);
+
+            TR::ILOpCodes cmpOpCode = isObjectEqualityCompare ? comp()->il.opCodeForCompareEquals(fieldEntry._datatype) : comp()->il.opCodeForCompareNotEquals(fieldEntry._datatype);
+            TR::ILOpCodes loadOpCode = comp()->il.opCodeForIndirectLoad(fieldEntry._datatype);
+
+            auto *loadFieldSymRef = comp()->getSymRefTab()->findOrFabricateShadowSymbol(callToTransform->_clazz,
+                                                                  fieldEntry._datatype,
+                                                                  fieldEntry._offset,
+                                                                  fieldEntry._isVolatile,
+                                                                  fieldEntry._isPrivate,
+                                                                  fieldEntry._isFinal,
+                                                                  fieldEntry._fieldname,
+                                                                  fieldEntry._typeSignature
+                                                                  );
+
+            if (trace())
+               {
+               traceMsg(comp(), "%s Changing n%dn from %s to %s fieldEntry[0] fieldName %s fieldSig %s type %d offset %d\n", __FUNCTION__,
+                  callNode->getGlobalIndex(), comp()->getSymRefTab()->getNonHelperSymbolName(isObjectEqualityCompare
+                                                   ? TR::SymbolReferenceTable::objectEqualityComparisonSymbol : TR::SymbolReferenceTable::objectInequalityComparisonSymbol),
+                  comp()->getDebug()->getName(cmpOpCode), fieldEntry._fieldname, fieldEntry._typeSignature, fieldEntry._datatype.getDataType(), fieldEntry._offset);
+               traceMsg(comp(),"    %s loadFieldSymRef %p %s \n", comp()->getDebug()->getName(loadOpCode), loadFieldSymRef, comp()->getDebug()->getName(loadFieldSymRef));
+               }
+
+            TR::Node *loadLhsFieldNode = TR::Node::createWithSymRef(loadOpCode, 1, 1, lhsNode, loadFieldSymRef);
+            TR::Node *loadRhsFieldNode = TR::Node::createWithSymRef(loadOpCode, 1, 1, rhsNode, loadFieldSymRef);
+
+            TR::Node::recreateWithoutProperties(callNode, cmpOpCode, 2, loadLhsFieldNode, loadRhsFieldNode);
+
+            lhsNode->recursivelyDecReferenceCount();
+            rhsNode->recursivelyDecReferenceCount();
+            }
+
          continue;
          }
 
@@ -2226,12 +2333,12 @@ J9::ValuePropagation::doDelayedTransformations()
          }
       else if (isLoad && isFlattenedElement)
          {
-         transformFlattenedArrayElementLoad(callToTransform->_arrayClass, callNode);
+         transformFlattenedArrayElementLoad(callToTransform->_clazz, callNode);
          }
       else
          {
          TR_ASSERT_FATAL(isStore && isFlattenedElement, "Missing flags: isLoad %d isStore %d isFlattenedElement %d for call tree n%dn\n", isLoad, isStore, isFlattenedElement, callTree->getNode()->getGlobalIndex());
-         isCallTreeRemoved = transformFlattenedArrayElementStore(callToTransform->_arrayClass, callTree, callNode, needsNullValueCheck);
+         isCallTreeRemoved = transformFlattenedArrayElementStore(callToTransform->_clazz, callTree, callNode, needsNullValueCheck);
          }
 
       if (!isCallTreeRemoved)

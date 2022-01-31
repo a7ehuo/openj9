@@ -190,22 +190,23 @@ class ValuePropagation : public OMR::ValuePropagation
       TR_ALLOC(TR_Memory::ValuePropagation)
       TR::TreeTop *_tree;
       TR::Node *_callNode;
-      flags8_t _flags;
-      TR_OpaqueClassBlock *_arrayClass;
+      flags16_t _flags;
+      TR_OpaqueClassBlock *_clazz;
 
-      ValueTypesHelperCallTransform(TR::TreeTop *tree, TR::Node *callNode, flags8_t flags, TR_OpaqueClassBlock *arrayClass)
-         : _tree(tree), _callNode(callNode), _flags(flags), _arrayClass(arrayClass) {}
+      ValueTypesHelperCallTransform(TR::TreeTop *tree, TR::Node *callNode, flags16_t flags, TR_OpaqueClassBlock *clazz)
+         : _tree(tree), _callNode(callNode), _flags(flags), _clazz(clazz) {}
 
       enum // flag bits
          {
-         IsArrayLoad               = 0x01,
-         IsArrayStore              = 0x02,
-         IsRefCompare              = 0x04,
-         InsertDebugCounter        = 0x08,
-         RequiresBoundCheck        = 0x10,
-         RequiresStoreCheck        = 0x20,
-         RequiresNullValueCheck    = 0x40,
-         IsFlattenedElement        = 0x80, // Indicates whether or not the array elements are flattened in array load or array store.
+         IsArrayLoad               = 0x001,
+         IsArrayStore              = 0x002,
+         IsRefCompare              = 0x004,
+         InsertDebugCounter        = 0x008,
+         RequiresBoundCheck        = 0x010,
+         RequiresStoreCheck        = 0x020,
+         RequiresNullValueCheck    = 0x040,
+         IsFlattenedElement        = 0x080, // Indicates whether or not the array elements are flattened in array load or array store.
+         IsSingleFieldVTCompare    = 0x100,
          };
    };
 
