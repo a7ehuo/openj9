@@ -733,7 +733,7 @@ J9::ValuePropagation::constrainRecognizedMethod(TR::Node *node)
                   new (trStackMemory()) ValueTypesHelperCallTransform(_curTree, node,
                                               ValueTypesHelperCallTransform::IsRefCompare
                                               | ValueTypesHelperCallTransform::InsertDebugCounter,
-                                              NULL));
+                                              NULL, 0));
 
             // Replace the non-helper equality/inequality comparison with an address comparison
             TR::Node::recreate(node, acmpOp.getOpCodeValue());
@@ -750,27 +750,140 @@ J9::ValuePropagation::constrainRecognizedMethod(TR::Node *node)
       else if (isLhsValue == TR_yes && isRhsValue == TR_yes)
          {
          const static char *disableXformInlineVTComparison = feGetEnv("TR_DisableXformInlineVTComparison");
+         //const static char *enableInlineVTComparisonInCodegen = feGetEnv("TR_EnableInlineVTComparisonInCodegen");
+
+         const static char *enableInlineSingleFieldCmpXformToFieldCmp = feGetEnv("TR_EnableInlineSingleFieldCmpXformToFieldCmp");
+         const static char *enableInlineSingleFieldCmpXformToArraycmp = feGetEnv("TR_EnableInlineSingleFieldCmpXformToArraycmp");
+         const static char *enableInlineSingleFieldCmpXformToNonHelper = feGetEnv("TR_EnableInlineSingleFieldCmpXformToNonHelper");
+
+         const static char *enableInlineMultiFieldCmpXformToArraycmp = feGetEnv("TR_EnableInlineMultiFieldCmpXformToArraycmp");
+         const static char *enableInlineMultiFieldCmpXformToNonHelper = feGetEnv("TR_EnableInlineMultiFieldCmpXformToNonHelper");
 
          if (!disableXformInlineVTComparison && (lhsClass == rhsClass))
             {
-            const  TR::TypeLayout *lhsFieldTypeLayout = comp()->typeLayout(lhsClass);
-            size_t lhsfieldCount = lhsFieldTypeLayout->count();
+            const  TR::TypeLayout *fieldTypeLayout = comp()->typeLayout(lhsClass);
+            size_t fieldCount = fieldTypeLayout->count();
+            int32_t totalFieldSize = TR::Compiler->om.objectHeaderSizeInBytes();
+            bool inlneVTComp = true;
 
-            if (lhsfieldCount == 1)
+            //TODO: what if totalFieldSize = 0?
+            //TODO: if the single field is double or float, can't use arraycmp or NonHelper
+            for (size_t idx = 0; idx < fieldCount; idx++)
                {
-               TR::DataType dataType = lhsFieldTypeLayout->entry(0)._datatype;
+               const TR::TypeLayoutEntry &fieldEntry = fieldTypeLayout->entry(idx);
+               TR::DataType dataType = fieldEntry._datatype;
+
+               if (fieldCount == 1)
+                  {
+                  if (!dataType.isIntegral() && !dataType.isDouble() && !dataType.isFloat())
+                     {
+                     inlneVTComp = false;
+                     break;
+                     }
+                  }
+               else if (!dataType.isIntegral())
+                  {
+                  inlneVTComp = false;
+                  break;
+                  }
+
+               totalFieldSize += TR::DataType::getSize(fieldEntry._datatype);
+               }
+
+            if (inlneVTComp)
+               {
+               transformObjectComp = true;
+               if (fieldCount == 1)
+                  {
+                  if (enableInlineSingleFieldCmpXformToFieldCmp)
+                     {
+                     _valueTypesHelperCallsToBeFolded.add(
+                     new (trStackMemory()) ValueTypesHelperCallTransform(_curTree, node,
+                                                                        ValueTypesHelperCallTransform::IsSingleFieldVTCompare
+                                                                        | ValueTypesHelperCallTransform::InsertDebugCounter,
+                                                                        lhsClass, totalFieldSize));
+                     }
+                  }
+               else
+                  {
+                  if (enableInlineSingleFieldCmpXformToArraycmp
+                      || enableInlineSingleFieldCmpXformToNonHelper
+                      || enableInlineMultiFieldCmpXformToArraycmp
+                      || enableInlineMultiFieldCmpXformToNonHelper)
+                     {
+                     _valueTypesHelperCallsToBeFolded.add(
+                     new (trStackMemory()) ValueTypesHelperCallTransform(_curTree, node,
+                                                                        ValueTypesHelperCallTransform::IsInlineVTCompare
+                                                                        | ValueTypesHelperCallTransform::InsertDebugCounter,
+                                                                        lhsClass, totalFieldSize));
+                     }
+                  }
+
+               if (trace())
+                  {
+                  traceMsg(comp(), "%s: Transforming callNode n%dn: lhsNode n%dn rhsNode n%dn fieldCount %d totalFieldSize %d\n", __FUNCTION__,
+                     node->getGlobalIndex(), lhsNode->getGlobalIndex(), rhsNode->getGlobalIndex(), fieldCount, totalFieldSize);
+                  }
+               }
+            }
+#if 0
+         if (!disableXformInlineVTComparison && (lhsClass == rhsClass))
+            {
+            const  TR::TypeLayout *fieldTypeLayout = comp()->typeLayout(lhsClass);
+            size_t fieldCount = fieldTypeLayout->count();
+
+            if (enableInlineSingleFieldCmpXformToFieldCmp && fieldCount == 1)
+               {
+               TR::DataType dataType = fieldTypeLayout->entry(0)._datatype;
                if (dataType.isIntegral()|| dataType.isDouble() || dataType.isFloat())
                   {
-
                   _valueTypesHelperCallsToBeFolded.add(
                      new (trStackMemory()) ValueTypesHelperCallTransform(_curTree, node,
                                                                         ValueTypesHelperCallTransform::IsSingleFieldVTCompare
                                                                         | ValueTypesHelperCallTransform::InsertDebugCounter,
-                                                                        lhsClass));
+                                                                        lhsClass, 1));
+                  transformObjectComp = true;
+                  }
+               }
+            else if (enableInlineSingleFieldCmpXformToArraycmp || enableInlineMultiFieldCmpXformToArraycmp) //TODO: fieldCount = 0, or >1
+               {
+               bool inlneVTComp = true;
+               int32_t totalFieldSize = TR::Compiler->om.objectHeaderSizeInBytes();
+               //int32_t totalFieldSize = 0;
+
+               //TODO: what if totalFieldSize = 0?
+               for (size_t idx = 0; idx < fieldCount; idx++)
+                  {
+                  const TR::TypeLayoutEntry &fieldEntry = fieldTypeLayout->entry(idx);
+                  TR::DataType dataType = fieldEntry._datatype;
+
+                  if (!dataType.isIntegral())
+                     {
+                     inlneVTComp = false;
+                     break;
+                     }
+
+                  totalFieldSize += TR::DataType::getSize(fieldEntry._datatype);
+                  }
+
+               if (inlneVTComp &&
+                   ((fieldCount == 1) && enableInlineSingleFieldCmpXformToArraycmp) || ((fieldCount > 1) && enableInlineMultiFieldCmpXformToArraycmp))
+                  {
+                  _valueTypesHelperCallsToBeFolded.add(
+                     new (trStackMemory()) ValueTypesHelperCallTransform(_curTree, node,
+                                                                        ValueTypesHelperCallTransform::IsInlineVTCompare
+                                                                        | ValueTypesHelperCallTransform::InsertDebugCounter,
+                                                                        lhsClass, totalFieldSize));
+                  if (trace())
+                     {
+                     traceMsg(comp(), "%s: Transforming callNode n%dn: lhsNode n%dn rhsNode n%dn fieldCount %d totalFieldSize %d\n", __FUNCTION__,
+                        node->getGlobalIndex(), lhsNode->getGlobalIndex(), rhsNode->getGlobalIndex(), fieldCount, totalFieldSize);
+                     }
                   transformObjectComp = true;
                   }
                }
             }
+#endif
          }
 
       if (!transformObjectComp)
@@ -912,7 +1025,7 @@ J9::ValuePropagation::constrainRecognizedMethod(TR::Node *node)
             }
 
          _valueTypesHelperCallsToBeFolded.add(
-               new (trStackMemory()) ValueTypesHelperCallTransform(_curTree, node, flagsForTransform, arrayConstraint->getClass()));
+               new (trStackMemory()) ValueTypesHelperCallTransform(_curTree, node, flagsForTransform, arrayConstraint->getClass(), 0));
          }
       else if (canTransformUnflattenedVTArrayElementLoadStore
                || (arrayConstraint != NULL && isCompTypeVT == TR_no)
@@ -953,7 +1066,7 @@ J9::ValuePropagation::constrainRecognizedMethod(TR::Node *node)
             }
 
          _valueTypesHelperCallsToBeFolded.add(
-               new (trStackMemory()) ValueTypesHelperCallTransform(_curTree, node, flagsForTransform, NULL));
+               new (trStackMemory()) ValueTypesHelperCallTransform(_curTree, node, flagsForTransform, NULL, 0));
          }
       else
          {
@@ -2160,6 +2273,7 @@ J9::ValuePropagation::doDelayedTransformations()
       const bool isStore = callToTransform->_flags.testAny(ValueTypesHelperCallTransform::IsArrayStore);
       const bool isCompare = callToTransform->_flags.testAny(ValueTypesHelperCallTransform::IsRefCompare);
       const bool isSingleFieldVTCompare = callToTransform->_flags.testAny(ValueTypesHelperCallTransform::IsSingleFieldVTCompare);
+      const bool isInlineVTCompare = callToTransform->_flags.testAny(ValueTypesHelperCallTransform::IsInlineVTCompare);
       const bool needsStoreCheck = callToTransform->_flags.testAny(ValueTypesHelperCallTransform::RequiresStoreCheck);
       const bool needsNullValueCheck = callToTransform->_flags.testAny(ValueTypesHelperCallTransform::RequiresNullValueCheck);
       const bool needsBoundCheck = callToTransform->_flags.testAny(ValueTypesHelperCallTransform::RequiresBoundCheck);
@@ -2172,7 +2286,7 @@ J9::ValuePropagation::doDelayedTransformations()
                             "%s Replacing n%dn %s\n",
                             OPT_DETAILS,
                             callNode->getGlobalIndex(),
-                            isSingleFieldVTCompare ? "none helper call <object{Inequality|Equality}Comparison>"
+                            (isSingleFieldVTCompare || isInlineVTCompare) ? "none helper call <object{Inequality|Equality}Comparison>"
                                  : (isLoad ? "acall of <jitLoadFlattenableArrayElement>" : "acall of <jitStoreFlattenableArrayElement>")))
          {
          continue;
@@ -2233,6 +2347,48 @@ J9::ValuePropagation::doDelayedTransformations()
             TR::Node *loadRhsFieldNode = TR::Node::createWithSymRef(loadOpCode, 1, 1, rhsNode, loadFieldSymRef);
 
             TR::Node::recreateWithoutProperties(callNode, cmpOpCode, 2, loadLhsFieldNode, loadRhsFieldNode);
+
+            lhsNode->recursivelyDecReferenceCount();
+            rhsNode->recursivelyDecReferenceCount();
+            }
+
+         continue;
+         }
+
+      if (isInlineVTCompare)
+         {
+         const bool isObjectInequalityTest = comp()->getSymRefTab()->isNonHelper(callNode->getSymbolReference(), TR::SymbolReferenceTable::objectInequalityComparisonSymbol);
+
+         if (isObjectInequalityTest)
+            {
+            TR::Node *lhsNode = callNode->getChild(0);
+            TR::Node *rhsNode = callNode->getChild(1);
+            TR::Node *totalFieldSizeNode = TR::Node::iconst(callNode, callToTransform->_totalFieldSize);
+
+            const static char *enableInlineMultiFieldCmpXformToArraycmp = feGetEnv("TR_EnableInlineMultiFieldCmpXformToArraycmp");
+            const static char *enableInlineSingleFieldCmpXformToArraycmp = feGetEnv("TR_EnableInlineSingleFieldCmpXformToArraycmp");
+            if (enableInlineMultiFieldCmpXformToArraycmp || enableInlineSingleFieldCmpXformToArraycmp)
+               {
+               TR::Node::recreateWithoutProperties(callNode, TR::arraycmp, 3, lhsNode, rhsNode, totalFieldSizeNode, comp()->getSymRefTab()->findOrCreateArrayCmpSymbol());
+               }
+            else // use non-helper call
+               {
+               TR::Node::recreateWithoutProperties(callNode, TR::icall, 3, lhsNode, rhsNode, totalFieldSizeNode, comp()->getSymRefTab()->findOrCreateObjectInequalityInlineComparisonSymbolRef());
+#if 0
+               callNode->setSymbolReference(comp()->getSymRefTab()->findOrCreateObjectInequalityInlineComparisonSymbolRef());
+               callNode->setNumChildren(3);
+               callNode->setAndIncChild(2, totalFieldSizeNode);
+#endif
+               }
+
+            if (trace())
+               {
+               traceMsg(comp(), "%s Changing n%dn from %s to %s. Add child n%dn\n", __FUNCTION__, callNode->getGlobalIndex(),
+                  comp()->getSymRefTab()->getNonHelperSymbolName(TR::SymbolReferenceTable::objectInequalityComparisonSymbol),
+                  (enableInlineMultiFieldCmpXformToArraycmp || enableInlineSingleFieldCmpXformToArraycmp) ?
+                        "arraycmp" : comp()->getSymRefTab()->getNonHelperSymbolName(TR::SymbolReferenceTable::objectInequalityInlineComparisonSymbol),
+                  totalFieldSizeNode->getGlobalIndex());
+               }
 
             lhsNode->recursivelyDecReferenceCount();
             rhsNode->recursivelyDecReferenceCount();

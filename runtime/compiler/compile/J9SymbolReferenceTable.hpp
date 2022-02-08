@@ -362,6 +362,7 @@ class SymbolReferenceTable : public OMR::SymbolReferenceTableConnector
    TR::SymbolReference *findOrCreateObjectEqualityComparisonSymbolRef();
    TR::SymbolReference *findOrCreateObjectInequalityComparisonSymbolRef();
 
+   TR::SymbolReference *findOrCreateObjectInequalityInlineComparisonSymbolRef();
    /**
     * \brief
     *    Finds the <nonNullableArrayNullStoreCheck> "nonhelper" symbol

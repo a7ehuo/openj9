@@ -2554,6 +2554,19 @@ J9::SymbolReferenceTable::findOrCreateObjectInequalityComparisonSymbolRef()
    }
 
 TR::SymbolReference *
+J9::SymbolReferenceTable::findOrCreateObjectInequalityInlineComparisonSymbolRef()
+   {
+   TR::SymbolReference *symRef = element(objectInequalityInlineComparisonSymbol);
+   if (symRef != NULL)
+      return symRef;
+
+   symRef = self()->findOrCreateCodeGenInlinedHelper(objectInequalityInlineComparisonSymbol);
+   symRef->setCanGCandReturn();
+   symRef->setCanGCandExcept();
+   return symRef;
+   }
+
+TR::SymbolReference *
 J9::SymbolReferenceTable::findOrCreateObjectEqualityComparisonSymbolRef()
    {
    TR::SymbolReference *symRef = element(objectEqualityComparisonSymbol);
@@ -2640,7 +2653,8 @@ const char *J9::SymbolReferenceTable::_commonNonHelperSymbolNames[] =
 const char *
 J9::SymbolReferenceTable::getNonHelperSymbolName(CommonNonhelperSymbol nonHelper)
    {
-#ifdef OMR_ENABLE_NONHELPER_EXTENSIBLE_ENUM
+#if 0
+/#ifdef OMR_ENABLE_NONHELPER_EXTENSIBLE_ENUM
    TR_ASSERT_FATAL(nonHelper <= J9lastNonhelperSymbol, "unknown nonhelper %" OMR_PRId32, static_cast<int32_t>(nonHelper));
 
    static_assert(sizeof(_commonNonHelperSymbolNames)/sizeof(_commonNonHelperSymbolNames[0]) ==
@@ -2652,10 +2666,11 @@ J9::SymbolReferenceTable::getNonHelperSymbolName(CommonNonhelperSymbol nonHelper
       return _commonNonHelperSymbolNames[static_cast<int32_t>(nonHelper - J9firstNonhelperSymbol)];
       }
    else
+#endif
       {
       return OMR::SymbolReferenceTableConnector::getNonHelperSymbolName(nonHelper);
       }
-#else
-   return NULL;
-#endif
+//#else
+//   return NULL;
+//#endif
    }

@@ -134,6 +134,9 @@ class OMR_EXTENSIBLE TreeEvaluator: public J9::TreeEvaluator
     * @param dataSnippetRegister: Optional, can be used to pass the address of the snippet inside the register.
     */
    static void generateFillInDataBlockSequenceForUnresolvedField (TR::CodeGenerator *cg, TR::Node *node, TR::Snippet *dataSnippet, bool isWrite, TR::Register *sideEffectRegister, TR::Register *dataSnippetRegister);
+
+   static TR::Register *SSE2InlincCompareEvaluator(TR::Node *node, TR::CodeGenerator *cg);
+
    static TR::Register *directCallEvaluator(TR::Node *node, TR::CodeGenerator *cg);
    static TR::Register *encodeUTF16Evaluator(TR::Node *node, TR::CodeGenerator *cg);
    static TR::Register *compressStringEvaluator(TR::Node *node, TR::CodeGenerator *cg, bool japaneseMethod);

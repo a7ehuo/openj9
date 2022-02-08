@@ -11746,6 +11746,128 @@ J9::X86::TreeEvaluator::tabortEvaluator(TR::Node *node, TR::CodeGenerator *cg)
    return NULL;
    }
 
+
+TR::Register *
+J9::X86::TreeEvaluator::SSE2InlincCompareEvaluator(TR::Node *node, TR::CodeGenerator *cg)
+   {
+   TR::Node *s1AddrNode = node->getChild(0);
+   TR::Node *s2AddrNode = node->getChild(1);
+   TR::Node *lengthNode = node->getChild(2);
+
+   TR::LabelSymbol *startLabel = generateLabelSymbol(cg);
+   TR::LabelSymbol *qwordLoop = generateLabelSymbol(cg);
+   TR::LabelSymbol *byteStart = generateLabelSymbol(cg);
+   TR::LabelSymbol *byteLoop = generateLabelSymbol(cg);
+   TR::LabelSymbol *qwordUnequal = generateLabelSymbol(cg);
+   TR::LabelSymbol *byteUnequal = generateLabelSymbol(cg);
+   TR::LabelSymbol *lessThanLabel = generateLabelSymbol(cg);
+   TR::LabelSymbol *greaterThanLabel = generateLabelSymbol(cg);
+   TR::LabelSymbol *equalLabel = generateLabelSymbol(cg);
+   TR::LabelSymbol *doneLabel = generateLabelSymbol(cg);
+
+   startLabel->setStartInternalControlFlow();
+   doneLabel->setEndInternalControlFlow();
+
+   TR::Register *s1Reg = cg->gprClobberEvaluate(s1AddrNode, TR::InstOpCode::MOVRegReg());
+   TR::Register *s2Reg = cg->gprClobberEvaluate(s2AddrNode, TR::InstOpCode::MOVRegReg());
+   TR::Register *strLenReg = cg->gprClobberEvaluate(lengthNode, TR::InstOpCode::MOVRegReg());
+   TR::Register *equalTestReg = cg->allocateRegister(TR_GPR);
+   TR::Register *s2ByteReg = cg->allocateRegister(TR_GPR);
+   TR::Register *byteCounterReg = cg->allocateRegister(TR_GPR);
+   TR::Register *qwordCounterReg = cg->allocateRegister(TR_GPR);
+   TR::Register *resultReg = cg->allocateRegister(TR_GPR);
+   TR::Register *xmm1Reg = cg->allocateRegister(TR_FPR);
+   TR::Register *xmm2Reg = cg->allocateRegister(TR_FPR);
+
+   TR::Machine *machine = cg->machine();
+
+   generateRegRegInstruction(TR::InstOpCode::CMP8RegReg, node, s1Reg, s2Reg, cg); // TODO: cmp if lhs == rhs
+   generateLabelInstruction(TR::InstOpCode::JE4, node, equalLabel, cg);
+
+   generateRegImmInstruction(TR::InstOpCode::MOVRegImm4(), node, resultReg, 4, cg); // TODO: add the object header
+   generateLabelInstruction(TR::InstOpCode::label, node, startLabel, cg);
+   generateRegRegInstruction(TR::InstOpCode::MOVRegReg(), node, qwordCounterReg, strLenReg, cg);
+   generateRegImmInstruction(TR::InstOpCode::SHRRegImm1(), node, qwordCounterReg, 4, cg); // TODO: do byte by byte comparison for now
+   generateLabelInstruction(TR::InstOpCode::JE4,node, byteStart, cg);
+
+   generateLabelInstruction(TR::InstOpCode::label, node, qwordLoop, cg);
+   generateRegMemInstruction(TR::InstOpCode::MOVUPSRegMem, node, xmm1Reg, generateX86MemoryReference(s1Reg, resultReg, 0, cg), cg);
+   generateRegMemInstruction(TR::InstOpCode::MOVUPSRegMem, node, xmm2Reg, generateX86MemoryReference(s2Reg, resultReg, 0, cg), cg);
+   generateRegRegInstruction(TR::InstOpCode::PCMPEQBRegReg, node, xmm1Reg, xmm2Reg, cg);
+   generateRegRegInstruction(TR::InstOpCode::PMOVMSKB4RegReg, node, equalTestReg, xmm1Reg, cg);
+   generateRegImmInstruction(TR::InstOpCode::CMPRegImm4(), node, equalTestReg, 0xffff, cg);
+
+   cg->stopUsingRegister(xmm1Reg);
+   cg->stopUsingRegister(xmm2Reg);
+
+   generateLabelInstruction(TR::InstOpCode::JNE4, node, qwordUnequal, cg);
+   generateRegImmInstruction(TR::InstOpCode::ADDRegImm4(), node, resultReg, 16, cg);
+   generateRegImmInstruction(TR::InstOpCode::SUBRegImm4(), node, qwordCounterReg, 1, cg);
+   generateLabelInstruction(TR::InstOpCode::JG4, node, qwordLoop, cg);
+
+   generateLabelInstruction(TR::InstOpCode::JMP4, node, byteStart, cg);
+
+   generateLabelInstruction(TR::InstOpCode::label, node, qwordUnequal, cg);
+   generateRegInstruction(TR::InstOpCode::NOT2Reg, node, equalTestReg, cg);
+   generateRegRegInstruction(TR::InstOpCode::BSF2RegReg, node, equalTestReg, equalTestReg, cg);
+   generateRegRegInstruction(TR::InstOpCode::ADDRegReg(), node, resultReg, equalTestReg, cg);
+   generateLabelInstruction(TR::InstOpCode::JMP4, node, byteUnequal, cg); // TODO: 
+
+   cg->stopUsingRegister(qwordCounterReg);
+   cg->stopUsingRegister(equalTestReg);
+
+   generateLabelInstruction(TR::InstOpCode::label, node, byteStart, cg);
+   generateRegRegInstruction(TR::InstOpCode::MOVRegReg(), node, byteCounterReg, strLenReg, cg);
+   generateRegImmInstruction(TR::InstOpCode::ANDRegImm4(), node, byteCounterReg, 0xf, cg);
+   generateLabelInstruction(TR::InstOpCode::JE4, node, equalLabel, cg);
+   cg->stopUsingRegister(strLenReg);
+
+   generateLabelInstruction(TR::InstOpCode::label, node, byteLoop, cg);
+   generateRegMemInstruction(TR::InstOpCode::L1RegMem, node, s2ByteReg, generateX86MemoryReference(s2Reg, resultReg, 0, cg), cg);
+   generateMemRegInstruction(TR::InstOpCode::CMP1MemReg, node, generateX86MemoryReference(s1Reg, resultReg, 0, cg), s2ByteReg, cg);
+   generateLabelInstruction(TR::InstOpCode::JNE4, node, byteUnequal, cg);
+
+   cg->stopUsingRegister(s2ByteReg);
+
+   generateRegImmInstruction(TR::InstOpCode::ADDRegImm4(), node, resultReg, 1, cg);
+   generateRegImmInstruction(TR::InstOpCode::SUBRegImm4(), node, byteCounterReg, 1, cg);
+   generateLabelInstruction(TR::InstOpCode::JG4, node, byteLoop, cg);
+
+   generateLabelInstruction(TR::InstOpCode::JMP4, node, equalLabel, cg);
+
+   cg->stopUsingRegister(byteCounterReg);
+   cg->stopUsingRegister(s1Reg);
+   cg->stopUsingRegister(s2Reg);
+
+   generateLabelInstruction(TR::InstOpCode::label, node, byteUnequal, cg);
+   generateRegImmInstruction(TR::InstOpCode::MOVRegImm4(), node, resultReg, 1, cg);
+   generateLabelInstruction(TR::InstOpCode::JMP4, node, doneLabel, cg);
+
+   generateLabelInstruction(TR::InstOpCode::label, node, equalLabel, cg);
+   generateRegImmInstruction(TR::InstOpCode::MOVRegImm4(), node, resultReg, 0, cg);
+
+   TR::RegisterDependencyConditions *deps = generateRegisterDependencyConditions((uint8_t) 0, 8, cg);
+   deps->addPostCondition(xmm1Reg, TR::RealRegister::xmm1, cg);
+   deps->addPostCondition(xmm2Reg, TR::RealRegister::xmm2, cg);
+
+   // The register pressure is 6  for above code.
+   deps->addPostCondition(byteCounterReg, TR::RealRegister::NoReg, cg);
+   deps->addPostCondition(s2ByteReg, TR::RealRegister::ByteReg, cg);
+   deps->addPostCondition(resultReg, TR::RealRegister::NoReg, cg);
+   deps->addPostCondition(equalTestReg, TR::RealRegister::NoReg, cg);
+   deps->addPostCondition(s2Reg, TR::RealRegister::NoReg, cg);
+   deps->addPostCondition(s1Reg, TR::RealRegister::NoReg, cg);
+
+   generateLabelInstruction(TR::InstOpCode::label, node, doneLabel, deps, cg);
+   node->setRegister(resultReg);
+
+   cg->decReferenceCount(s1AddrNode);
+   cg->decReferenceCount(s2AddrNode);
+   cg->decReferenceCount(lengthNode);
+
+   return resultReg;
+   }
+
 TR::Register *
 J9::X86::TreeEvaluator::directCallEvaluator(TR::Node *node, TR::CodeGenerator *cg)
    {
@@ -11763,6 +11885,21 @@ J9::X86::TreeEvaluator::directCallEvaluator(TR::Node *node, TR::CodeGenerator *c
       return returnRegister;
       }
 #endif
+   if (comp->getOption(TR_TraceCG))
+      {
+      traceMsg(comp,"node n%dn symRefNum %d %s isHelper %d\n", node->getGlobalIndex(), symRef->getReferenceNumber(), cg->getDebug()->getName(symRef), symbol->isHelper());
+      }
+
+   if (cg->symRefTab()->isNonHelper(symRef, TR::SymbolReferenceTable::objectInequalityInlineComparisonSymbol))
+      {
+      if (comp->getOption(TR_TraceCG))
+         {
+         traceMsg(comp,"objectInequalityInlineComparisonSymbol: node n%dn symRefNum %d %s\n", node->getGlobalIndex(), symRef->getReferenceNumber(), cg->getDebug()->getName(symRef));
+         }
+
+      //return TR::TreeEvaluator::SSE2InlincCompareEvaluator(node, cg);
+      return TR::TreeEvaluator::SSE2ArraycmpEvaluator(node, cg);
+      }
 
    if (symbol->isHelper())
       {

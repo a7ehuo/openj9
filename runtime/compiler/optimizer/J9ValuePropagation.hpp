@@ -192,9 +192,10 @@ class ValuePropagation : public OMR::ValuePropagation
       TR::Node *_callNode;
       flags16_t _flags;
       TR_OpaqueClassBlock *_clazz;
+      int32_t _totalFieldSize;
 
-      ValueTypesHelperCallTransform(TR::TreeTop *tree, TR::Node *callNode, flags16_t flags, TR_OpaqueClassBlock *clazz)
-         : _tree(tree), _callNode(callNode), _flags(flags), _clazz(clazz) {}
+      ValueTypesHelperCallTransform(TR::TreeTop *tree, TR::Node *callNode, flags16_t flags, TR_OpaqueClassBlock *clazz, int totalFieldSize)
+         : _tree(tree), _callNode(callNode), _flags(flags), _clazz(clazz), _totalFieldSize(totalFieldSize) {}
 
       enum // flag bits
          {
@@ -207,6 +208,7 @@ class ValuePropagation : public OMR::ValuePropagation
          RequiresNullValueCheck    = 0x040,
          IsFlattenedElement        = 0x080, // Indicates whether or not the array elements are flattened in array load or array store.
          IsSingleFieldVTCompare    = 0x100,
+         IsInlineVTCompare         = 0x200,
          };
    };
 
