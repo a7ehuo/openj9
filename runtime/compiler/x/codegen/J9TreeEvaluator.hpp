@@ -50,6 +50,7 @@ class OMR_EXTENSIBLE TreeEvaluator: public J9::TreeEvaluator
    static TR::Register *monexitEvaluator(TR::Node *node, TR::CodeGenerator *cg);
    static TR::Register *asynccheckEvaluator(TR::Node *node, TR::CodeGenerator *cg);
    static TR::Register *newEvaluator(TR::Node *node, TR::CodeGenerator *cg);
+   static TR::Register *newvalueEvaluator(TR::Node *node, TR::CodeGenerator *cg);
    static TR::Register *multianewArrayEvaluator(TR::Node *node, TR::CodeGenerator *cg);
    static TR::Register *arraycopyEvaluator(TR::Node *node, TR::CodeGenerator *cg);
    static TR::Register *arraylengthEvaluator(TR::Node *node, TR::CodeGenerator *cg);
@@ -164,6 +165,8 @@ class OMR_EXTENSIBLE TreeEvaluator: public J9::TreeEvaluator
 
    private:
    static TR::Register* performHeapLoadWithReadBarrier(TR::Node* node, TR::CodeGenerator* cg);
+
+   static TR::Register* allocateNewValueConstantDataSnippet(TR::Node *node, TR::CodeGenerator *cg);
    };
 
 }

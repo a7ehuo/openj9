@@ -2306,3 +2306,28 @@ J9::TreeEvaluator::requireHelperCallValueTypeAllocation(TR::Node *node, TR::Code
       }
    return false;
    }
+
+bool
+J9::TreeEvaluator::canAllocateNewValueConstantDataSnippet(TR::Node *node, TR::CodeGenerator *cg)
+   {
+   static bool enableAllocateNewValueConstantDataSnippet = feGetEnv("TR_EnableAllocateNewValueConstantDataSnippet");
+
+   // n690n     treetop
+   // n691n       new  jitNewValue
+   // n692n         loadaddr  net/adoptopenjdk/bumblebench/valhalla/SingleFieldPrimitive
+   // n2486n    istorei  net/adoptopenjdk/bumblebench/valhalla/SingleFieldPrimitive.i I
+   // n691n       ==>new
+   // n693n       ==>iconst 0
+   // TODO: what if the class is an interface
+   TR::Compilation *comp = cg->comp();
+   if (enableAllocateNewValueConstantDataSnippet &&
+       TR::Compiler->om.areValueTypesEnabled() &&
+       node->getSymbolReference() == comp->getSymRefTab()->findOrCreateNewValueSymbolRef(comp->getMethodSymbol()) &&
+       node->markedAllocationCanBeRemoved())
+      {
+      // TODO: check store node after new jitNewValue
+      return true;
+      }
+
+   return false;
+   }

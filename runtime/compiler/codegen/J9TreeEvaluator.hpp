@@ -251,6 +251,8 @@ class OMR_EXTENSIBLE TreeEvaluator: public OMR::TreeEvaluatorConnector
     *  tries to create a value type instance.
     */
    static bool requireHelperCallValueTypeAllocation(TR::Node *node, TR::CodeGenerator *cg);
+
+   static bool canAllocateNewValueConstantDataSnippet(TR::Node *node, TR::CodeGenerator *cg);
    };
 
 }
