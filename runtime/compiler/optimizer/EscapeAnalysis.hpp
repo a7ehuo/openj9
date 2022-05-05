@@ -119,7 +119,8 @@ struct FieldInfo
    TR_ScratchList<TR::SymbolReference> *_badFieldSymrefs;
    char                                  _vectorElem;
 
-   void                rememberFieldSymRef(TR::Node *node, int32_t fieldOffset, Candidate *candidate, TR_EscapeAnalysis *ea);
+   void                rememberFieldSymRef(TR::Node *node, Candidate *candidate, TR_EscapeAnalysis *ea);
+   void                rememberFieldSymRef(TR::SymbolReference *symRef, TR_EscapeAnalysis *ea);
    bool                symRefIsForFieldInAllocatedClass(TR::SymbolReference *symRef);
    bool                hasBadFieldSymRef();
    TR::SymbolReference *fieldSymRef(); // Any arbitrary good field symref
@@ -247,6 +248,8 @@ class Candidate : public TR_Link<Candidate>
          _coldBlockEscapeInfo.add(coldBlockInfo);
          }
       }
+
+     FieldInfo & findOrSetFieldInfo(TR::Node *fieldRefNode, TR::SymbolReference *symRef, int32_t fieldOffset, int32_t fieldSize, TR::DataType fieldStoreType, TR_EscapeAnalysis *ea);
 
      void print();
 
@@ -481,6 +484,8 @@ class TR_EscapeAnalysis : public TR::Optimization
    virtual int32_t perform();
    virtual const char * optDetailString() const throw();
 
+   bool                       _disableValueTypeStackAllocation;
+
    protected:
 
    enum restrictionType { MakeNonLocal, MakeContiguous, MakeObjectReferenced };
@@ -683,6 +688,7 @@ class TR_EscapeAnalysis : public TR::Optimization
    bool findCallSiteFixed(TR::TreeTop * virtualCallSite);
 
    TR::SymbolReference        *_newObjectNoZeroInitSymRef;
+   TR::SymbolReference        *_newValueSymRef;
    TR::SymbolReference        *_newArrayNoZeroInitSymRef;
    TR::SymbolReference        *_aNewArrayNoZeroInitSymRef;
    TR_UseDefInfo             *_useDefInfo;
@@ -769,6 +775,7 @@ class TR_EscapeAnalysis : public TR::Optimization
    friend class TR_FlowSensitiveEscapeAnalysis;
    friend class TR_LocalFlushElimination;
    friend struct FieldInfo;
+   friend class Candidate;
    };
 
 //class Candidate;
