@@ -1942,6 +1942,7 @@ J9::ValuePropagation::transformFlattenedArrayElementLoad(TR_OpaqueClassBlock *ar
    // Create newvalue
    TR::Node *newValueNode = TR::Node::recreateWithoutProperties(callNode, TR::newvalue, fieldCount+1, classNode, comp()->getSymRefTab()->findOrCreateNewValueSymbolRef(method));
    newValueNode->setIdentityless(true);
+   comp()->getMethodSymbol()->setHasNews(true);
 
    // If the array element contains zero field, the newvalue will contain only loadaddr
    if (fieldCount == 0)
