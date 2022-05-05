@@ -703,6 +703,8 @@ J9::ValuePropagation::constrainRecognizedMethod(TR::Node *node)
                lhsNode->getGlobalIndex(), lhsClass, (isLhsValue == TR_yes) ? 1 : 0, lhs, getValueNumber(lhsNode),
                rhsNode->getGlobalIndex(), rhsClass, (isRhsValue == TR_yes) ? 1 : 0, rhs, getValueNumber(rhsNode), areSameRef);
 
+      static const char *disableInlineCmpInVP = feGetEnv("TR_DisableInlineCmpInVP");
+
       // Non-helper equality/inequality comparison call is not needed if
       // either operand is definitely not an instance of a value type or
       // if both operands are definitely references to the same object
@@ -740,7 +742,7 @@ J9::ValuePropagation::constrainRecognizedMethod(TR::Node *node)
             transformObjectCmp = true;
             }
          }
-      else if ((isLhsValue == TR_yes) && (isRhsValue == TR_yes) && (lhsClass == rhsClass) && lhsClass)
+      else if (!disableInlineCmpInVP && (isLhsValue == TR_yes) && (isRhsValue == TR_yes) && (lhsClass == rhsClass) && lhsClass)
          {
          const TR::TypeLayout *fieldTypeLayout = comp()->typeLayout(lhsClass);
          size_t fieldCount = fieldTypeLayout->count();
@@ -901,6 +903,13 @@ J9::ValuePropagation::constrainRecognizedMethod(TR::Node *node)
           (TR::Compiler->cls.isValueTypeClassFlattened(arrayConstraint->getClass()) == TR_no))
          {
          canTransformUnflattenedVTArrayElementLoadStore = true;
+         }
+
+      static const char *disableFlattenedArrayElementLoadStoreSymRef = feGetEnv("TR_DisableFlattenedArrayElementLoadStoreSymRef");
+      if (disableFlattenedArrayElementLoadStoreSymRef)
+         {
+         canTransformFlattenedArrayElementLoadStore = false;
+         canTransformUnflattenedVTArrayElementLoadStore = false;
          }
 
       // If the array is known to have a component type that is not a primitive value type or
