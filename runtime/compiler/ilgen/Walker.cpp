@@ -6648,9 +6648,11 @@ TR_J9ByteCodeIlGenerator::genAconst_init(TR_OpaqueClassBlock *valueTypeClass)
       traceMsg(comp(), "Handling aconst_init for valueClass %s\n", comp()->getDebug()->getName(valueClassSymRef));
       }
 
-   loadSymbol(TR::loadaddr, valueClassSymRef);
 
    TR::Node *newValueNode = NULL;
+
+   static const char *disableAconstLoadILGen = feGetEnv("TR_DisableAconstLoadILGen");
+   J9Class *clazz = comp()->fej9vm()->getClassForAllocationInlining(comp(), valueClassSymRef);
 
    if (valueClassSymRef->isUnresolved())
       {
@@ -6658,8 +6660,23 @@ TR_J9ByteCodeIlGenerator::genAconst_init(TR_OpaqueClassBlock *valueTypeClass)
       // If the class is still unresolved, abort the compilation and track the failure with a static debug counter.
       abortForUnresolvedValueTypeOp("aconst_init", "class");
       }
+   else if (!disableAconstLoadILGen &&
+            clazz &&
+            comp()->fej9()->isClassInitialized(TR::Compiler->cls.convertClassPtrToClassOffset(clazz)) &&
+            clazz->flattenedClassCache->defaultValue)
+      {
+      if (comp()->getOption(TR_TraceILGen))
+         {
+         traceMsg(comp(), "Handling aconst_init for valueClass %s isClassInitialized 1\n", comp()->getDebug()->getName(valueClassSymRef));
+         }
+
+      newValueNode = TR::Node::create(TR::aconst, 0);
+      newValueNode->setAddress((uintptr_t)clazz->flattenedClassCache->defaultValue);
+      }
    else
       {
+      loadSymbol(TR::loadaddr, valueClassSymRef);
+
       const TR::TypeLayout *typeLayout = comp()->typeLayout(valueTypeClass);
       size_t fieldCount = typeLayout->count();
 
