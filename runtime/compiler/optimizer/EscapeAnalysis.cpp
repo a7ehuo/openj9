@@ -126,12 +126,6 @@ TR_EscapeAnalysis::TR_EscapeAnalysis(TR::OptimizationManager *manager)
      _devirtualizedCallSites(manager->comp()->trMemory()),
      _aNewArrayNoZeroInitSymRef(NULL)
    {
-
-if (trace())
-{
-traceMsg(comp(), "Entering TR_EscapeAnalysis::TR_EscapeAnalysis\n");
-}
-
    static char *disableValueTypeEASupport = feGetEnv("TR_DisableValueTypeEA");
    _disableValueTypeStackAllocation = (disableValueTypeEASupport != NULL);
 
@@ -153,10 +147,6 @@ traceMsg(comp(), "Entering TR_EscapeAnalysis::TR_EscapeAnalysis\n");
 
    static char *disableLoopAliasAllocationChecking = feGetEnv("TR_disableEALoopAliasAllocationChecking");
    _doLoopAllocationAliasChecking = (disableLoopAliasAllocationChecking == NULL);
-if (trace())
-{
-traceMsg(comp(), "Leaving TR_EscapeAnalysis::TR_EscapeAnalysis\n");
-}
    }
 
 char *TR_EscapeAnalysis::getClassName(TR::Node *classNode)
@@ -238,10 +228,6 @@ bool TR_EscapeAnalysis::isImmutableObject(Candidate *candidate)
 
 int32_t TR_EscapeAnalysis::perform()
    {
-if (trace())
-{
-traceMsg(comp(), "Entering TR_EscapeAnalysis::perform\n");
-}
    if (comp()->isOptServer() && (comp()->getMethodHotness() <= warm))
       return 0;
 
@@ -1385,8 +1371,6 @@ int32_t TR_EscapeAnalysis::performAnalysisOnce()
          }
       }
 
-comp()->dumpMethodTrees("Trees after handling candidates");
-
    _somethingChanged |= devirtualizeCallSites();
 
    // If there are any call sites to be inlined, do it now
@@ -1915,14 +1899,6 @@ Candidate *TR_EscapeAnalysis::createCandidateIfValid(TR::Node *node, TR_OpaqueCl
 
    Candidate *result = NULL;
    result = new (trStackMemory()) Candidate(node, _curTree, _curBlock, size, classInfo, comp());
-
-#if 0
-   // HZ - Force value types to be contiguous for now
-   if (node->getOpCodeValue() == TR::newvalue)
-      {
-      result->setMustBeContiguousAllocation();
-      }
-#endif
 
    result->setProfileOnly(profileOnly);
    return result;
@@ -3374,11 +3350,11 @@ void TR_EscapeAnalysis::forceEscape(TR::Node *node, TR::Node *reason, bool force
                //candidate->setLocalAllocation(false);
                }
             else
-{
+               {
                if (trace())
                   traceMsg(comp(), "  Marking candidate [%p] as referenced in forceEscape as it is immutable\n", candidate->_node);
                candidate->setObjectIsReferenced();
-}
+               }
             }
          else
             {
@@ -6790,22 +6766,6 @@ void TR_EscapeAnalysis::makeContiguousLocalAllocation(Candidate *candidate)
    if (candidate->escapesInColdBlocks())
       {
       candidate->_originalAllocationNode = candidate->_node->duplicateTree();
-
-#if 0
-      if (originalAllocationOpCode != TR::newvalue)
-         {
-         candidate->_originalAllocationNode = candidate->_node->duplicateTree(true /* duplicateChildren */);
-         }
-      else
-         {
-         // For newvalue operations, heapification must be performed with a newvalue
-         // that specifies the field values.  Copy just the newvalue and its loadaddr
-         // first child.  When heapification code is generated, the values of the
-         // fields will be added to the newvalue at that point.
-         candidate->_originalAllocationNode = candidate->_node->duplicateTree(false /* duplicateChildren */);
-         candidate->_originalAllocationNode->setChild(candidate->_node->getFirstChild()->duplicateTree(false /* duplicateChildren */));
-         }
-#endif
       }
 
    bool skipZeroInit = false;
@@ -7135,16 +7095,13 @@ void TR_EscapeAnalysis::makeNonContiguousLocalAllocation(Candidate *candidate)
       TR::TreeTop *fieldValueTreeTopCursor = candidate->_treeTop->getPrevTreeTop();
       TR::TreeTop *fieldStoreTreeTopCursor = candidate->_treeTop;
 
+
       // If the non-contiguous candidate escapes, all fields must be known - i.e.,
       // candidate->_fields for newvalue must not be NULL, unless the newvalue
       // has no value children (i.e., the value type class has no fields) -
       // so that the values of all fields can be set properly at the escape point.
+      // Ensure all fields are represented to be safe.
       //
-      if (candidate->escapesInColdBlocks())
-         {
-         TR_ASSERT_FATAL((candidate->_fields != NULL) || (candidate->_node->getNumChildren() == 1), "Candidate %p created with newvalue operation must have non-null candidate->_fields\n", candidate->_node);
-         }
-
       for (int i = 1; i < candidate->_node->getNumChildren(); i++)
          {
          TR::Node *fieldValueNode = candidate->_node->getChild(i);
@@ -7186,15 +7143,6 @@ void TR_EscapeAnalysis::makeNonContiguousLocalAllocation(Candidate *candidate)
          TR::DataType type = autoSymRef->getSymbol()->getDataType();
          TR::Node *storeNode = TR::Node::createWithSymRef(comp()->il.opCodeForDirectStore(type), 1, 1, fieldValueNode, autoSymRef);
          fieldStoreTreeTopCursor = TR::TreeTop::create(comp(), fieldStoreTreeTopCursor, storeNode);
-
-         // If the non-contiguous candidate escapes, all fields must be known - i.e.,
-         // all fields of newvalue operations must have corresponding stack allocated symrefs, as
-         // every field of a value type is significant for the purposes of comparisons
-         //
-         if (candidate->escapesInColdBlocks())
-            {
-            TR_ASSERT_FATAL((i >= 0) || (candidate->_node->getNumChildren() == 1), "No auto field found corresponding to newvalue candidate %p field %s with type signature %s\n", candidate->_node, fieldEntry._fieldname, fieldEntry._typeSignature);
-            }
          }
       }
    else if (candidate->_fields)
@@ -7237,22 +7185,6 @@ void TR_EscapeAnalysis::makeNonContiguousLocalAllocation(Candidate *candidate)
       // For newvalue operations, heapification should be performed with a newvalue
       // that specifies the field values, so the
       candidate->_originalAllocationNode = candidate->_node->duplicateTree();
-
-#if 0
-      if (originalAllocationOpCode != TR::newvalue)
-         {
-         candidate->_originalAllocationNode = candidate->_node->duplicateTree(true /* duplicateChildren */);
-         }
-      else
-         {
-         // For newvalue operations, heapification must be performed with a newvalue
-         // that specifies the field values.  Copy just the newvalue and its loadaddr
-         // first child.  When heapification code is generated, the values of the
-         // fields will be added to the newvalue at that point.
-         candidate->_originalAllocationNode = candidate->_node->duplicateTree(false /* duplicateChildren */);
-         candidate->_originalAllocationNode->setChild(candidate->_node->getFirstChild()->duplicateTree(false /* duplicateChildren */));
-         }
-#endif
       }
 
    // If the object was referenced we will need to create a local object for it
@@ -7605,7 +7537,7 @@ void TR_EscapeAnalysis::heapifyForColdBlocks(Candidate *candidate)
             traceMsg(comp(), "Updating heap allocation node with fieldCount == %d\n", fieldCount);
 
          TR::Node *newValueHeapificationNode = heapAllocation->getFirstChild();
-         
+
          for (size_t idx = 0; idx < fieldCount; idx++)
             {
             const TR::TypeLayoutEntry &fieldEntry = typeLayout->entry(idx);
@@ -8271,14 +8203,14 @@ FieldInfo& Candidate::findOrSetFieldInfo(TR::Node *fieldRefNode, TR::SymbolRefer
    for (int j = 0; j < N; j++)
       {
       const bool isPeeking = (ea->_parms != NULL);
-      
+
       int32_t i;
       if (!this->_fields)
          {
          this->_fields = new (trStackMemory()) TR_Array<FieldInfo>(trMemory(), 8, false, stackAlloc);
          i = -1;
          }
-      else 
+      else
          {
          for (i = this->_fields->size()-1; i >= 0; i--)
             {
@@ -8300,7 +8232,7 @@ FieldInfo& Candidate::findOrSetFieldInfo(TR::Node *fieldRefNode, TR::SymbolRefer
          (*this->_fields)[i]._vectorElem = 0;
          (*this->_fields)[i]._goodFieldSymrefs = new (trStackMemory()) TR_ScratchList<TR::SymbolReference>(trMemory());
          (*this->_fields)[i]._badFieldSymrefs  = new (trStackMemory()) TR_ScratchList<TR::SymbolReference>(trMemory());
-         }  
+         }
       if (resultIdx < 0)
          {
          resultIdx = i;
@@ -8316,7 +8248,7 @@ FieldInfo& Candidate::findOrSetFieldInfo(TR::Node *fieldRefNode, TR::SymbolRefer
             (*this->_fields)[i].rememberFieldSymRef(symRef, ea);
             }
          }
-         
+
       if (N > 1) // vector
          {
          (*this->_fields)[i]._vectorElem = j+1;
