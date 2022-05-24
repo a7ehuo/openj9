@@ -929,6 +929,22 @@ J9::SymbolReferenceTable::findOrFabricateFlattenedArrayElementFieldShadowSymbol(
    return symRef;
    }
 
+TR::SymbolReference *
+J9::SymbolReferenceTable::findOrCreateDefaultValueSymbolRef()
+   {
+   if (!element(defaultValueSymbol))
+      {
+      TR::Symbol *sym = TR::Symbol::createShadow(trHeapMemory(), TR::Address);
+
+      TR::SymbolReference *symRef = new (trHeapMemory()) TR::SymbolReference(self(), defaultValueSymbol, sym);
+      symRef->setCanGCandReturn();
+
+      element(defaultValueSymbol) = symRef;
+      element(defaultValueSymbol)->setOffset(0);
+      }
+   return element(defaultValueSymbol);
+   }
+
 TR::Symbol *
 J9::SymbolReferenceTable::createShadowSymbol(
    TR::DataType type,

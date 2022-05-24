@@ -6648,11 +6648,10 @@ TR_J9ByteCodeIlGenerator::genAconst_init(TR_OpaqueClassBlock *valueTypeClass)
       traceMsg(comp(), "Handling aconst_init for valueClass %s\n", comp()->getDebug()->getName(valueClassSymRef));
       }
 
-
    TR::Node *newValueNode = NULL;
-
-   static const char *disableAconstLoadILGen = feGetEnv("TR_DisableAconstLoadILGen");
    J9Class *clazz = comp()->fej9vm()->getClassForAllocationInlining(comp(), valueClassSymRef);
+
+   static const char *disableAconstInitIndirectLoadILGen = feGetEnv("TR_DisableAconstInitIndirectLoadILGen");
 
    if (valueClassSymRef->isUnresolved())
       {
@@ -6660,18 +6659,26 @@ TR_J9ByteCodeIlGenerator::genAconst_init(TR_OpaqueClassBlock *valueTypeClass)
       // If the class is still unresolved, abort the compilation and track the failure with a static debug counter.
       abortForUnresolvedValueTypeOp("aconst_init", "class");
       }
-   else if (!disableAconstLoadILGen &&
+   else if (!disableAconstInitIndirectLoadILGen &&
             clazz &&
-            comp()->fej9()->isClassInitialized(TR::Compiler->cls.convertClassPtrToClassOffset(clazz)) &&
-            clazz->flattenedClassCache->defaultValue)
+            comp()->fej9()->isClassInitialized(TR::Compiler->cls.convertClassPtrToClassOffset(clazz)))
       {
+      /* n37n      treetop
+       * n36n        aloadi  <defaultValue>[#354  Shadow] [flags 0x607 0x0 ]
+       * n35n          aconst 0x1bbba0
+       */
+      TR::Node *defaultValueSlotAddressNode = TR::Node::create(TR::aconst, 0);
+      defaultValueSlotAddressNode->setAddress((uintptr_t)TR::Compiler->cls.getDefaultValueSlotAddress(comp(), TR::Compiler->cls.convertClassPtrToClassOffset(clazz)));
+
+      newValueNode = TR::Node::createWithSymRef(TR::aloadi, 1, 1, defaultValueSlotAddressNode, comp()->getSymRefTab()->findOrCreateDefaultValueSymbolRef());
+
       if (comp()->getOption(TR_TraceILGen))
          {
-         traceMsg(comp(), "Handling aconst_init for valueClass %s isClassInitialized 1\n", comp()->getDebug()->getName(valueClassSymRef));
+         J9JavaVM *javaVM = comp()->fej9()->getJ9JITConfig()->javaVM;
+         j9object_t *slot = javaVM->internalVMFunctions->getDefaultValueSlotAddress(clazz);
+         traceMsg(comp(), "Handling aconst_init for valueClass %s isClassInitialized 1 defaultValueSlot %p defaultValue %p\n",
+               comp()->getDebug()->getName(valueClassSymRef), slot, *slot);
          }
-
-      newValueNode = TR::Node::create(TR::aconst, 0);
-      newValueNode->setAddress((uintptr_t)clazz->flattenedClassCache->defaultValue);
       }
    else
       {

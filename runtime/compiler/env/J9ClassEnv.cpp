@@ -1038,3 +1038,22 @@ J9::ClassEnv::flattenedArrayElementSize(TR::Compilation *comp, TR_OpaqueClassBlo
       return vm->internalVMFunctions->arrayElementSize((J9ArrayClass*)self()->convertClassOffsetToClassPtr(arrayClass));
       }
    }
+
+j9object_t*
+J9::ClassEnv::getDefaultValueSlotAddress(TR::Compilation *comp, TR_OpaqueClassBlock *clazz)
+   {
+#if defined(J9VM_OPT_JITSERVER)
+   if (auto stream = TR::CompilationInfo::getStream())
+      {
+      stream->write(JITServer::MessageType::ClassEnv_getDefaultValueSlotAddress, clazz);
+      return std::get<0>(stream->read<j9object_t*>());
+      }
+   else // non-jitserver
+#endif /* defined(J9VM_OPT_JITSERVER) */
+      {
+      J9Class *j9class = reinterpret_cast<J9Class *>(clazz);
+      J9JavaVM *vm = comp->fej9()->getJ9JITConfig()->javaVM;
+
+      return vm->internalVMFunctions->getDefaultValueSlotAddress(j9class);
+      }
+   }
