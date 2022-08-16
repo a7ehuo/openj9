@@ -6079,6 +6079,12 @@ TR_J9ByteCodeIlGenerator::loadFromCallSiteTable(int32_t callSiteIndex)
       }
    }
 
+bool
+isVTArrayFlatteningEnabled(J9JavaVM *vm)
+   {
+   return J9_ARE_ALL_BITS_SET(vm->extendedRuntimeFlags2, J9_EXTENDED_RUNTIME2_ENABLE_VT_ARRAY_FLATTENING);
+   }
+
 void
 TR_J9ByteCodeIlGenerator::loadArrayElement(TR::DataType dataType, TR::ILOpCodes nodeop, bool checks, bool mayBeValueType)
    {
@@ -6087,7 +6093,16 @@ TR_J9ByteCodeIlGenerator::loadArrayElement(TR::DataType dataType, TR::ILOpCodes 
    // we won't have flattening, so no call to flattenable array element access
    // helper is needed.
    //
-   if (mayBeValueType && TR::Compiler->om.areValueTypesEnabled() && !TR::Compiler->om.canGenerateArraylets() && dataType == TR::Address)
+   static const char *disableCheckOnFlatteningEnabled = feGetEnv("TR_DisableCheckOnFlatteningEnabled");
+   J9JavaVM *vm = comp()->fej9()->getJ9JITConfig()->javaVM;
+   bool useHelperCall;
+
+   if (disableCheckOnFlatteningEnabled)
+      useHelperCall = true;
+   else
+      useHelperCall = isVTArrayFlatteningEnabled(vm);
+
+   if (mayBeValueType && TR::Compiler->om.areValueTypesEnabled() && useHelperCall && !TR::Compiler->om.canGenerateArraylets() && dataType == TR::Address)
       {
       TR::Node* elementIndex = pop();
       TR::Node* arrayBaseAddress = pop();
