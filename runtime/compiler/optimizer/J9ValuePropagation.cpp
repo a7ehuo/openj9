@@ -895,12 +895,28 @@ J9::ValuePropagation::constrainRecognizedMethod(TR::Node *node)
 
       // If the array is known to be of a primitive value type that is not flattened,
       // transform the helper call to regular aaload and aastore.
+      static const char *disableCheckOnFlatteningEnabled = feGetEnv("TR_DisableAastoreCheckOnFlatteningEnabled");
       bool canTransformUnflattenedVTArrayElementLoadStore = false;
-      if (arrayConstraint &&
+
+      if (!disableCheckOnFlatteningEnabled)
+         canTransformUnflattenedVTArrayElementLoadStore = TR::Compiler->om.isValueTypeArrayFlatteningEnabled() ? false : true;
+
+      if (trace())
+         {
+         traceMsg(comp(), "%s: 1. canTransformUnflattenedVTArrayElementLoadStore %d\n", __FUNCTION__, canTransformUnflattenedVTArrayElementLoadStore);
+         }
+
+      if (!canTransformUnflattenedVTArrayElementLoadStore &&
+          arrayConstraint &&
           (isCompTypePrimVT == TR_yes) &&
           (TR::Compiler->cls.isValueTypeClassFlattened(arrayConstraint->getClass()) == TR_no))
          {
          canTransformUnflattenedVTArrayElementLoadStore = true;
+         }
+
+      if (trace())
+         {
+         traceMsg(comp(), "%s: 2. canTransformUnflattenedVTArrayElementLoadStore %d\n", __FUNCTION__, canTransformUnflattenedVTArrayElementLoadStore);
          }
 
       // If the array is known to have a component type that is not a primitive value type or
@@ -1050,6 +1066,19 @@ J9::ValuePropagation::constrainRecognizedMethod(TR::Node *node)
                   if ((isCompTypePrimVT != TR_no) && (storeValueConstraint == NULL || !storeValueConstraint->isNonNullObject()))
                      {
                      flagsForTransform.set(ValueTypesHelperCallTransform::RequiresNullValueCheck);
+
+                     if (trace())
+                        {
+                        traceMsg(comp(), "%s: ValueTypesHelperCallTransform::RequiresNullValueCheck\n", __FUNCTION__);
+                        }
+                     }
+                  else
+                     {
+                     if (trace())
+                        {
+                        traceMsg(comp(), "%s: NOT RequiresNullValueCheck: isCompTypePrimVT %d storeValueConstraint %p isNonNullObject %d\n", __FUNCTION__,
+                              isCompTypePrimVT, storeValueConstraint, storeValueConstraint ? storeValueConstraint->isNonNullObject() : -1);
+                        }
                      }
                   }
                }

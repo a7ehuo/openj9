@@ -68,6 +68,8 @@ public:
    */
    bool areValueBasedMonitorChecksEnabled();
 
+   bool isValueTypeArrayFlatteningEnabled();
+
    int32_t sizeofReferenceField();
    bool isHotReferenceFieldRequired();
    uintptr_t elementSizeOfBooleanArray();
