@@ -24,6 +24,8 @@
 
 #include "compile/Compilation.hpp"
 #include "compile/SymbolReferenceTable.hpp"
+#include "env/PersistentCHTable.hpp"
+#include "env/TypeLayout.hpp"
 #include "il/Block.hpp"
 #include "il/Block_inlines.hpp"
 #include "infra/ILWalk.hpp"
@@ -873,6 +875,16 @@ class LoadArrayElementTransformer: public TR::TreeLowering::Transformer
       {}
 
    void lower(TR::Node* const node, TR::TreeTop* const tt);
+
+   private:
+   enum ArrayElementType
+      {
+      ArrayElementTypeUnknown,
+      ArrayElementTypeFlattened, // Flattened value type class
+      ArrayElementTypeUnflattened, //Identity class or value type class unflattened
+      };
+
+   ArrayElementType arrayElementIsInterfaceHasSingleImplementer(TR::Node *arrayRefNode, TR_OpaqueClassBlock *&singleImplementerClass);
    };
 
 static bool skipBoundChecks(TR::Compilation *comp, TR::Node *node)
@@ -883,6 +895,82 @@ static bool skipBoundChecks(TR::Compilation *comp, TR::Node *node)
    return false;
    }
 
+LoadArrayElementTransformer::ArrayElementType
+LoadArrayElementTransformer::arrayElementIsInterfaceHasSingleImplementer(TR::Node *arrayRefNode, TR_OpaqueClassBlock *&singleImplementerClass)
+   {
+   TR::Compilation *comp = this->comp();
+   TR_J9VMBase *fej9 = comp->fej9();
+
+   if (!TR::Compiler->om.areValueTypesEnabled())
+      {
+      return LoadArrayElementTransformer::ArrayElementTypeUnknown;
+      }
+
+   TR::SymbolReference *symRef = arrayRefNode->getSymbolReference();
+   int32_t len;
+   const char *sig = symRef ? symRef->getTypeSignature(len) : NULL;
+   TR_OpaqueClassBlock *clazz = sig ? fej9->getClassFromSignature((sig+1), len-1, symRef->getOwningMethod(comp), comp) : NULL;
+
+   if (trace())
+      {
+      traceMsg(comp, "%s: symRef #%d getCPIndex %d isClassArray %d len sig %.*s clazz %p\n", __FUNCTION__,
+            symRef ? symRef->getReferenceNumber() : -1,
+            symRef ? symRef->getCPIndex() : -1,
+            symRef ? symRef->isClassArray(comp) : -1,
+            sig ? len : 2, sig ? sig : "<>", clazz);
+      }
+
+   if (clazz)
+      {
+      bool isInterface = TR::Compiler->cls.isInterfaceClass(comp, clazz);
+      singleImplementerClass = isInterface ? comp->getPersistentInfo()->getPersistentCHTable()->findSingleConcreteSubClass(clazz, comp) : NULL;
+
+      int interfaceClassNameLen;
+      char *interfaceClassName = fej9->getClassNameChars(clazz, interfaceClassNameLen);
+
+      if (trace())
+         {
+         traceMsg(comp,"%s: clazz %p %s isInterface %d singleImplementerClass %p\n", __FUNCTION__, clazz, interfaceClassName, isInterface, singleImplementerClass);
+         }
+
+      if (singleImplementerClass)
+         {
+         int implementerClassNameLen;
+         char *implementerClassName = fej9->getClassNameChars(singleImplementerClass, interfaceClassNameLen);
+
+         if (TR::Compiler->cls.classHasIdentity(singleImplementerClass))
+            {
+            if (trace())
+               {
+               traceMsg(comp,"%s: return singleImplementerClass %p %s ArrayElementTypeUnflattened\n", __FUNCTION__, singleImplementerClass, implementerClassName);
+               }
+            return LoadArrayElementTransformer::ArrayElementTypeUnflattened;
+            }
+
+         if (TR::Compiler->cls.isPrimitiveValueTypeClass(singleImplementerClass) ||
+             TR::Compiler->cls.isValueTypeClass(singleImplementerClass))
+            {
+            if (TR::Compiler->cls.isValueTypeClassFlattened(singleImplementerClass))
+               {
+               if (trace())
+                  traceMsg(comp,"%s: return singleImplementerClass %p %s ArrayElementTypeFlattened\n", __FUNCTION__, singleImplementerClass, implementerClassName);
+               return LoadArrayElementTransformer::ArrayElementTypeFlattened;
+               }
+            else
+               {
+               if (trace())
+                  traceMsg(comp,"%s: return singleImplementerClass %p %s ArrayElementTypeUnflattened\n", __FUNCTION__, singleImplementerClass, implementerClassName);
+               return LoadArrayElementTransformer::ArrayElementTypeUnflattened;
+               }
+            }
+         }
+      }
+
+   if (trace())
+      traceMsg(comp,"%s: singleImplementerClass %p ArrayElementTypeUnknown\n", __FUNCTION__, singleImplementerClass);
+
+   return LoadArrayElementTransformer::ArrayElementTypeUnknown;
+   }
 /*
  * LoadArrayElementTransformer transforms the block that contains the jitLoadFlattenableArrayElement helper call into three blocks:
  *   1. The merge block (blockAfterHelperCall) that contains the tree tops after the helper call
@@ -998,6 +1086,20 @@ LoadArrayElementTransformer::lower(TR::Node* const node, TR::TreeTop* const tt)
           elementIndexNode->getGlobalIndex(), arrayBaseAddressNode->getGlobalIndex(), tt->getNextTreeTop()->getNode()->getGlobalIndex()))
       return;
 
+   ///////////////////////////////////////
+   //x. Check if arrayElement is an interface with a single implementer
+   TR_OpaqueClassBlock *singleImplementerClass = NULL;
+   bool canTransformAaloadInterfaceHasSingleImplementer = false;
+   LoadArrayElementTransformer::ArrayElementType arrayElemenetType = arrayElementIsInterfaceHasSingleImplementer(arrayBaseAddressNode, singleImplementerClass);
+   static char *disableAAloadInterfaceHasSingleImplementerXForm = feGetEnv("TR_DisableAAloadInterfaceHasSingleImplementerXForm");
+
+   if (!disableAAloadInterfaceHasSingleImplementerXForm &&
+       singleImplementerClass &&
+       (arrayElemenetType == LoadArrayElementTransformer::ArrayElementTypeFlattened))
+      {
+      canTransformAaloadInterfaceHasSingleImplementer = true;
+      }
+
    const char *counterName = TR::DebugCounter::debugCounterName(comp, "vt-helper/inlinecheck/aaload/(%s)/bc=%d", comp->signature(), node->getByteCodeIndex());
    TR::DebugCounter::incStaticDebugCounter(comp, counterName);
 
@@ -1060,17 +1162,83 @@ LoadArrayElementTransformer::lower(TR::Node* const node, TR::TreeTop* const tt)
    // 6. Create array element load node and append to the originalBlock
    TR::Node *anchoredArrayBaseAddressNode = anchoredArrayBaseAddressTT->getNode()->getFirstChild();
    TR::Node *anchoredElementIndexNode = anchoredElementIndexTT->getNode()->getFirstChild();
-
-   TR::Node *elementAddress = J9::TransformUtil::calculateElementAddress(comp, anchoredArrayBaseAddressNode, anchoredElementIndexNode, TR::Address);
-   TR::SymbolReference *elementSymRef = comp->getSymRefTab()->findOrCreateArrayShadowSymbolRef(TR::Address, anchoredArrayBaseAddressNode);
-   TR::Node *elementLoadNode = TR::Node::createWithSymRef(comp->il.opCodeForIndirectArrayLoad(TR::Address), 1, 1, elementAddress, elementSymRef);
-   elementLoadNode->copyByteCodeInfo(node);
-
    TR::TreeTop *elementLoadTT = NULL;
-   if (comp->useCompressedPointers())
-      elementLoadTT = originalBlock->append(TR::TreeTop::create(comp, TR::Node::createCompressedRefsAnchor(elementLoadNode)));
-   else
+   TR::Node *elementLoadNode = NULL;
+
+   if (canTransformAaloadInterfaceHasSingleImplementer)
+      {
+      if (enableTrace)
+         traceMsg(comp, "canTransformAaloadInterfaceHasSingleImplementer 1\n");
+
+      const TR::TypeLayout *fieldTypeLayout = comp->typeLayout(singleImplementerClass);
+      size_t fieldCount = fieldTypeLayout->count();
+
+      TR::ResolvedMethodSymbol *method = comp->getOwningMethodSymbol(node->getOwningMethod());
+
+      // create loadaddr
+      TR::Node *classNode = TR::Node::createWithSymRef(node, TR::loadaddr, 0,
+                                               comp->getSymRefTab()->findOrCreateClassSymbol(method, -1, singleImplementerClass));
+
+      // Create newvalue
+      elementLoadNode = TR::Node::createWithSymRef(node, TR::newvalue, fieldCount+1, classNode, comp->getSymRefTab()->findOrCreateNewValueSymbolRef(method));
+      elementLoadNode->setIdentityless(true);
+      comp->getMethodSymbol()->setHasNews(true);
+
+      // If the array element contains zero field, the newvalue will contain only loadaddr
+      if (fieldCount == 0)
+         {
+         if (trace())
+            {
+            traceMsg(comp,"%s fieldCount 0: The call node is recreated to newValueNode n%dn\n", __FUNCTION__, elementLoadNode->getGlobalIndex());
+            }
+         // TODO???
+         }
+
+      // Generate aladd for element address
+      int32_t elementStride = TR::Compiler->cls.flattenedArrayElementSize(comp, comp->fej9()->getArrayClassFromComponentClass(singleImplementerClass));
+      TR::Node *elementAddressNode = J9::TransformUtil::calculateElementAddressWithElementStride(comp, anchoredArrayBaseAddressNode, anchoredElementIndexNode, elementStride);
+
+      // Generate load for each of the final fields
+      int newValueNodeChildIndex = 1;
+      for (size_t idx = 0; idx < fieldCount; idx++)
+         {
+         const TR::TypeLayoutEntry &fieldEntry = fieldTypeLayout->entry(idx);
+         TR::ILOpCodes loadOpCode = comp->il.opCodeForIndirectLoad(fieldEntry._datatype);
+
+         auto *fieldSymRef = comp->getSymRefTab()->findOrFabricateFlattenedArrayElementFieldShadowSymbol(singleImplementerClass,
+                                                                     fieldEntry._datatype,
+                                                                     fieldEntry._offset,
+                                                                     fieldEntry._isPrivate,
+                                                                     fieldEntry._fieldname,
+                                                                     fieldEntry._typeSignature);
+         if (trace())
+            {
+            traceMsg(comp, "%s %s fieldSymRef: %s fieldEntry[%d] fieldName %s fieldSig %s type %d offset %d elementStride %d\n", __FUNCTION__,
+               comp->getDebug()->getName(loadOpCode), comp->getDebug()->getName(fieldSymRef), (int)idx,
+               fieldEntry._fieldname, fieldEntry._typeSignature, fieldEntry._datatype.getDataType(), fieldEntry._offset, elementStride);
+            }
+
+         TR::Node *loadNode = TR::Node::createWithSymRef(loadOpCode, 1, elementAddressNode, 0, fieldSymRef);
+         elementLoadNode->setAndIncChild(newValueNodeChildIndex++, loadNode);
+         }
+
       elementLoadTT = originalBlock->append(TR::TreeTop::create(comp, TR::Node::create(node, TR::treetop, 1, elementLoadNode)));
+      }
+   else
+      {
+      if (enableTrace)
+         traceMsg(comp, "canTransformAaloadInterfaceHasSingleImplementer 0\n");
+
+      TR::Node *elementAddress = J9::TransformUtil::calculateElementAddress(comp, anchoredArrayBaseAddressNode, anchoredElementIndexNode, TR::Address);
+      TR::SymbolReference *elementSymRef = comp->getSymRefTab()->findOrCreateArrayShadowSymbolRef(TR::Address, anchoredArrayBaseAddressNode);
+      elementLoadNode = TR::Node::createWithSymRef(comp->il.opCodeForIndirectArrayLoad(TR::Address), 1, 1, elementAddress, elementSymRef);
+      elementLoadNode->copyByteCodeInfo(node);
+
+      if (comp->useCompressedPointers())
+         elementLoadTT = originalBlock->append(TR::TreeTop::create(comp, TR::Node::createCompressedRefsAnchor(elementLoadNode)));
+      else
+         elementLoadTT = originalBlock->append(TR::TreeTop::create(comp, TR::Node::create(node, TR::treetop, 1, elementLoadNode)));
+      }
 
    if (enableTrace)
       traceMsg(comp, "Created array element load treetop n%dn node n%dn\n", elementLoadTT->getNode()->getGlobalIndex(), elementLoadNode->getGlobalIndex());
@@ -1120,18 +1288,51 @@ LoadArrayElementTransformer::lower(TR::Node* const node, TR::TreeTop* const tt)
    ///////////////////////////////////////
    // 9. Create ificmpne node that checks classFlags
 
-   // The branch destination will be set up later
-   TR::Node *ifNode = comp->fej9()->checkArrayCompClassPrimitiveValueType(anchoredArrayBaseAddressNode, TR::ificmpne);
+   TR::Node *guard = NULL;
+   TR::Node *ifNode = NULL;
 
-   // Copy register dependency to the ificmpne node that's being appended to the current block
-   copyRegisterDependency(arrayElementLoadBlock->getExit()->getNode(), ifNode);
+   if (canTransformAaloadInterfaceHasSingleImplementer)
+      {
+      if (enableTrace)
+         traceMsg(comp, "%s singleImplementerClass %p arrayElemenetType %d\n", __FUNCTION__, singleImplementerClass, arrayElemenetType);
 
-   // Append the ificmpne node that checks classFlags to the original block
-   originalBlock->append(TR::TreeTop::create(comp, ifNode));
+      TR::SymbolReference *vftSymRef = comp->getSymRefTab()->findOrCreateVftSymbolRef();
+      TR::SymbolReference *arrayCompSymRef = comp->getSymRefTab()->findOrCreateArrayComponentTypeSymbolRef();
 
-   if (enableTrace)
-      traceMsg(comp, "Append ifNode n%dn to block_%d\n", ifNode->getGlobalIndex(), originalBlock->getNumber());
+      TR::Node *vft = TR::Node::createWithSymRef(TR::aloadi, 1, 1, arrayBaseAddressNode, vftSymRef);
+      TR::Node *arrayCompClass = TR::Node::createWithSymRef(TR::aloadi, 1, 1, vft, arrayCompSymRef);
 
+      //TR::Node *vftArrayCompClass = TR::Node::createWithSymRef(TR::aloadi, 1, 1, arrayCompClass, vftSymRef);
+
+      TR::Node *aconstNode = TR::Node::aconst(arrayBaseAddressNode, (uintptr_t)singleImplementerClass);
+      aconstNode->setIsClassPointerConstant(true);
+      aconstNode->setInlinedSiteIndex(comp->getCurrentInlinedSiteIndex());
+      aconstNode->setByteCodeIndex(0);
+
+      //guard = TR::Node::createif(TR::ifacmpne, vftArrayCompClass, aconstNode);
+      guard = TR::Node::createif(TR::ifacmpne, arrayCompClass, aconstNode);
+
+      copyRegisterDependency(arrayElementLoadBlock->getExit()->getNode(), guard);
+
+      originalBlock->append(TR::TreeTop::create(comp, guard));
+
+      if (enableTrace)
+         traceMsg(comp, "Append guard n%dn to block_%d\n", guard->getGlobalIndex(), originalBlock->getNumber());
+      }
+   else
+      {
+      // The branch destination will be set up later
+      ifNode = comp->fej9()->checkArrayCompClassPrimitiveValueType(anchoredArrayBaseAddressNode, TR::ificmpne);
+
+      // Copy register dependency to the ificmpne node that's being appended to the current block
+      copyRegisterDependency(arrayElementLoadBlock->getExit()->getNode(), ifNode);
+
+      // Append the ificmpne node that checks classFlags to the original block
+      originalBlock->append(TR::TreeTop::create(comp, ifNode));
+
+      if (enableTrace)
+         traceMsg(comp, "Append ifNode n%dn to block_%d\n", ifNode->getGlobalIndex(), originalBlock->getNumber());
+      }
 
    ///////////////////////////////////////
    // 10. Copy tmpGlRegDeps to arrayElementLoadBlock
@@ -1165,7 +1366,10 @@ LoadArrayElementTransformer::lower(TR::Node* const node, TR::TreeTop* const tt)
 
    ///////////////////////////////////////
    // 11. Set up the edges between the blocks
-   ifNode->setBranchDestination(helperCallBlock->getEntry());
+   if (canTransformAaloadInterfaceHasSingleImplementer)
+      guard->setBranchDestination(helperCallBlock->getEntry());
+   else
+      ifNode->setBranchDestination(helperCallBlock->getEntry());
 
    cfg->addEdge(originalBlock, helperCallBlock);
 
