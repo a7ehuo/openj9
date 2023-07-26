@@ -1159,7 +1159,7 @@ SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0-only WITH Classpath-ex
 		<testCaseName>JCL_Test_none_SCC</testCaseName>
 		<variations>
 			<variation>-Xshareclasses:none</variation>
-			<variation>-Xshareclasses:none -XX:RecreateClassfileOnload</variation>
+			<variation>-Xshareclasses:none -XX:RecreateClassfileOnload '-Xjit:{java/lang/StringUTF16.toLowerCase(Ljava/lang/String;[BLjava/util/Locale;)Ljava/lang/String;}(optLevel=veryHot,paranoidOptCheck,traceFull,traceILGen,traceCG,traceGRA,log=jitlog)'</variation>
 		</variations>
 		<command>$(JAVA_COMMAND) $(JAVA_SECURITY_MANAGER) $(JVM_OPTIONS) -verbose:stacktrace -Djava.security.policy=$(Q)$(TEST_RESROOT)$(D)java.policy$(Q) \
 	-Drowset.provider.classname=org.openj9.resources.classloader.CustomSyncProvider \

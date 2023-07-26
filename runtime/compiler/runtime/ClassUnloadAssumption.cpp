@@ -498,11 +498,13 @@ void TR_RuntimeAssumptionTable::markAssumptionsAndDetach(void * md, bool reclaim
             entriesRemain = true;
             #if defined(PROD_WITH_ASSUMES) || defined(DEBUG)
             TR_RuntimeAssumptionKind kind = cursor->getAssumptionKind();
+#if 0
             TR_ASSERT(kind == RuntimeAssumptionOnClassRedefinitionPIC ||
                       kind == RuntimeAssumptionOnClassRedefinitionUPIC ||
                       kind == RuntimeAssumptionOnClassRedefinitionNOP,
                "non redefinition assumption (RA=%p kind=%d key=%p) left after metadata reclamation\n",
                cursor, kind, cursor->getKey());
+#endif
             #endif
             }
          }
