@@ -803,6 +803,19 @@ configureDumpAgents(J9JavaVM *vm, J9VMInitArgs *j9vm_args, BOOLEAN isBootup)
 		}
 	}
 
+	if (OMR_ERROR_INTERNAL == loadDumpAgent(vm, scanDumpType(&(char *){"java"}), "events=throw+systhrow,filter=java/lang/ClassCastException")) {
+		printDumpSpec(vm, scanDumpType(&(char *){"java"}), 2);
+		return J9VMDLLMAIN_SILENT_EXIT_VM;
+	}
+	if (OMR_ERROR_INTERNAL == loadDumpAgent(vm, scanDumpType(&(char *){"system"}), "events=throw+systhrow,filter=java/lang/ClassCastException")) {
+		printDumpSpec(vm, scanDumpType(&(char *){"system"}), 2);
+		return J9VMDLLMAIN_SILENT_EXIT_VM;
+	}
+	if (OMR_ERROR_INTERNAL == loadDumpAgent(vm, scanDumpType(&(char *){"jit"}), "events=throw+systhrow,filter=java/lang/ClassCastException")) {
+		printDumpSpec(vm, scanDumpType(&(char *){"jit"}), 2);
+		return J9VMDLLMAIN_SILENT_EXIT_VM;
+	}
+
 	if (showAgents) {
 		showDumpAgents(vm);
 	}

@@ -214,6 +214,7 @@ traceInitializationHelper(J9JavaVM *vm, UtThreadData **tempThr, J9VMInitArgs *vm
 		returnVal = J9VMDLLMAIN_SILENT_EXIT_VM;
 		goto done;
 	}
+	UT_GLOBAL(bufferSize) = 16777216;
 
 	/* needs to occur after setOptions because setOptions sets the default opts */
 	for (i = 0; NULL != opts[i]; i += 2) {
