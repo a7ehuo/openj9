@@ -3098,7 +3098,53 @@ TR_J9ByteCodeIlGenerator::genInvokeInterface(int32_t cpIndex)
       TR::Node *check =
          TR::Node::createWithSymRef(TR::ZEROCHK, 1, 1, instanceof, icce);
 
-      callTree->insertBefore(TR::TreeTop::create(comp(), check));
+      TR::TreeTop *zeroCHKTT = callTree->insertBefore(TR::TreeTop::create(comp(), check));
+
+      /*
+       * If the class is unresolved, `genInstanceof` anchors `instanceof` under a `treetop` node.
+       * Then the anchored `instanceof` treetop appears after the callTree and it commons with
+       * the previous `instanceof` node under the ZEROCHK.
+       * This causes a problem because `expandUnresolvedClassInstanceof` does not expect the
+       * treetop that has the anchored `instanceof` to have already been evaluated when it appears
+       * under ZEROCHK. The transformation in `expandUnresolvedClassInstanceof` will not function correctly.
+       * Therefore, the anchored `instanceof` treetop needs to be moved up before ZEROCHK.
+       *
+       * preTT
+       * ZEROCHKTT
+       *    instanceof
+       * callTree
+       * treetop
+       *    ==>instanceof
+       * nextTT
+       *
+       *    ||
+       *    ||
+       *    \/
+       *
+       * preTT
+       * treetop
+       *    instanceof
+       * ZEROCHKTT
+       *    ==>instanceof
+       * callTree
+       * nextTT
+       *
+       */
+      TR::TreeTop *instanceOfTT = callTree->getNextTreeTop();
+      if (instanceOfTT &&
+          instanceOfTT->getNode()->getOpCodeValue() == TR::treetop &&
+          instanceOfTT->getNode()->getFirstChild() &&
+          instanceOfTT->getNode()->getFirstChild() == instanceof)
+         {
+         callTree->join(instanceOfTT->getNextTreeTop());
+
+         zeroCHKTT->insertBefore(instanceOfTT);
+
+         if (comp()->getOption(TR_TraceILGen))
+            {
+            traceMsg(comp(), "%s: move the anchored instanceOfTT n%dn before zeroCHKTT n%dn\n", __FUNCTION__, instanceOfTT->getNode()->getGlobalIndex(), zeroCHKTT->getNode()->getGlobalIndex());
+            }
+         }
       }
    }
 
