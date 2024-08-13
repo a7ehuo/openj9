@@ -25,6 +25,8 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodType;
 import java.lang.reflect.Array;
+import jdk.internal.value.NullRestrictedCheckedType;
+import jdk.internal.value.ValueClass;
 
 public class DDRValueTypeTest {
 	public static void main(String[] args) {
@@ -62,9 +64,10 @@ public class DDRValueTypeTest {
 		Object assortedValueWithSingleAlignmentAlt = ValueTypeTests.createAssorted(makeAssortedValueWithSingleAlignment, ValueTypeTests.typeWithSingleAlignmentFields, altFields);
 		Object valueTypeWithVolatileFields = ValueTypeTests.createValueTypeWithVolatileFields();
 		
-		Object valArray = Array.newInstance(assortedValueWithSingleAlignmentClass, 2);
-		Array.set(valArray, 0, assortedValueWithSingleAlignment);
-		Array.set(valArray, 1, assortedValueWithSingleAlignmentAlt);
+		Object[] valArray = ValueClass.newArrayInstance(
+			NullRestrictedCheckedType.of(assortedValueWithSingleAlignmentClass), 2);
+		valArray[0] = assortedValueWithSingleAlignment;
+		valArray[1] = assortedValueWithSingleAlignmentAlt;
 
 		ValueTypeTests.checkObject(assortedValueWithSingleAlignment, 
 				assortedValueWithSingleAlignmentAlt, 
