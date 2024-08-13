@@ -186,7 +186,7 @@ public class ValueTypeHelper {
 			int index = 0;
 
 			if (Pattern.matches("\\[\\d+\\]", nestingHierarchy[0])) {
-				resultClasses[0] = containerClazz.arrayClass();
+				resultClasses[0] = containerClazz.nullRestrictedArrayClass();
 				index = 1;
 			}
 			resultClasses[index] = containerClazz;
