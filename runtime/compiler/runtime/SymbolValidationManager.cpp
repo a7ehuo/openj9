@@ -714,6 +714,13 @@ TR::SymbolValidationManager::addMultipleArrayRecords(TR_OpaqueClassBlock *compon
       appendRecordIfNew(
          array,
          new (_region) ArrayClassFromComponentClassRecord(array, component));
+
+      TR_OpaqueClassBlock *nullRestrictedArray = _fej9->getNullRestrictedArrayClassFromComponentClass(component);
+      if (nullRestrictedArray)
+         appendRecordIfNew(
+            nullRestrictedArray,
+            new (_region) ArrayClassFromComponentClassRecord(nullRestrictedArray, component));
+
       component = array;
       }
    }
@@ -1252,7 +1259,11 @@ TR::SymbolValidationManager::validateArrayClassFromComponentClassRecord(uint16_t
    if (isDefinedID(componentClassID))
       {
       TR_OpaqueClassBlock *componentClass = getClassFromID(componentClassID);
-      return validateSymbol(arrayClassID, _fej9->getArrayClassFromComponentClass(componentClass));
+      if (validateSymbol(arrayClassID, _fej9->getArrayClassFromComponentClass(componentClass)))
+         return true;
+      
+      TR_OpaqueClassBlock *nullRestrictedArray = _fej9->getNullRestrictedArrayClassFromComponentClass(componentClass);
+      return nullRestrictedArray ? validateSymbol(arrayClassID, nullRestrictedArray) : false; 
       }
    else
       {
