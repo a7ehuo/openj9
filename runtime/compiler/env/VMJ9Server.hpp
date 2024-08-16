@@ -126,6 +126,7 @@ public:
    virtual bool isCloneable(TR_OpaqueClassBlock *clazzPointer) override;
    virtual bool canAllocateInlineClass(TR_OpaqueClassBlock *clazz) override;
    virtual TR_OpaqueClassBlock * getArrayClassFromComponentClass(TR_OpaqueClassBlock *componentClass) override;
+   virtual TR_OpaqueClassBlock * getNullRestrictedArrayClassFromComponentClass(TR_OpaqueClassBlock *componentClass) override;
    virtual J9Class * matchRAMclassFromROMclass(J9ROMClass *clazz, TR::Compilation *comp) override;
    virtual int32_t * getCurrentLocalsMapForDLT(TR::Compilation *comp) override;
    virtual uintptr_t getReferenceFieldAt(uintptr_t objectPointer, uintptr_t offsetFromHeader) override;
@@ -342,6 +343,7 @@ public:
    virtual bool isPrimitiveClass(TR_OpaqueClassBlock *clazzPointer) override;
    virtual TR_OpaqueClassBlock *getComponentClassFromArrayClass(TR_OpaqueClassBlock *arrayClass) override;
    virtual TR_OpaqueClassBlock *getArrayClassFromComponentClass(TR_OpaqueClassBlock *componentClass) override;
+   virtual TR_OpaqueClassBlock * getNullRestrictedArrayClassFromComponentClass(TR_OpaqueClassBlock *componentClass) override;
    virtual TR_OpaqueClassBlock *getLeafComponentClassFromArrayClass(TR_OpaqueClassBlock *arrayClass) override;
    virtual TR_OpaqueClassBlock *getBaseComponentClass(TR_OpaqueClassBlock *clazz, int32_t & numDims) override;
    virtual TR_OpaqueClassBlock *getClassFromNewArrayType(int32_t arrayType) override;
