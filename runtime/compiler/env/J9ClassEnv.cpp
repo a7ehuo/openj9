@@ -903,6 +903,21 @@ J9::ClassEnv::isValueBasedOrValueTypeClass(TR_OpaqueClassBlock *clazz)
    }
 
 bool
+J9::ClassEnv::isArrayNullRestricted(TR_OpaqueClassBlock *arrayClass)
+   {
+   J9ArrayClass *j9class = reinterpret_cast<J9ArrayClass*>(arrayClass);
+   return J9_IS_J9ARRAYCLASS_NULL_RESTRICTED(j9class);
+#if 0
+#if defined(J9VM_OPT_VALHALLA_FLATTENABLE_VALUE_TYPES)
+   J9Class *j9class = reinterpret_cast<J9Class*>(arrayComponentClass);
+   return j9class->nullRestrictedArrayClass ? true : false;
+#else /* defined(J9VM_OPT_VALHALLA_FLATTENABLE_VALUE_TYPES) */
+	return false;
+#endif /* defined(J9VM_OPT_VALHALLA_FLATTENABLE_VALUE_TYPES) */
+#endif
+   }
+
+bool
 J9::ClassEnv::classHasIdentity(TR_OpaqueClassBlock *clazz)
    {
 #if defined(J9VM_OPT_JITSERVER)

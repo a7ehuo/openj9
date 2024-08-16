@@ -3853,6 +3853,12 @@ void TR_ResolvedJ9Method::construct()
       {  TR::unknownMethod}
       };
 
+   static X ValueClassMethods[] =
+      {
+      {x(TR::jdk_internal_value_ValueClass_newArrayInstance, "newArrayInstance", "(Ljdk/internal/value/CheckedType;I)[Ljava/lang/Object;")},
+      {  TR::unknownMethod}
+      };
+
    static X SpreadHandleMethods[] =
       {
       {x(TR::java_lang_invoke_SpreadHandle_numArgsToPassThrough,  "numArgsToPassThrough",   "()I")},
@@ -4189,6 +4195,7 @@ void TR_ResolvedJ9Method::construct()
       { "sun/nio/cs/ISO_8859_1$Decoder", EncodeMethods },
       { "java/io/ByteArrayOutputStream", ByteArrayOutputStreamMethods },
       { "java/lang/ScopedValue$Carrier", ScopedValueMethods },
+      { "jdk/internal/value/ValueClass", ValueClassMethods },
       { 0 }
       };
 
@@ -4507,6 +4514,11 @@ void TR_ResolvedJ9Method::construct()
                setRecognizedMethodInfo(TR::java_lang_invoke_DirectHandle_directCall);
             if (!strncmp(name, "invokeExact_thunkArchetype_", 27))
                setRecognizedMethodInfo(TR::java_lang_invoke_DirectHandle_invokeExact);
+            }
+          else if ((classNameLen == 29) && !strncmp(className,"jdk/internal/value/ValueClass", 29))
+            {
+            if (!strncmp(name, "newArrayInstance_", 17))
+               setRecognizedMethodInfo(TR::jdk_internal_value_ValueClass_newArrayInstance);
             }
          else if ((classNameLen == 30) && !strncmp(className, "java/lang/invoke/VirtualHandle", 30))
             {

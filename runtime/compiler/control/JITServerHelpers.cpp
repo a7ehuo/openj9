@@ -1237,6 +1237,9 @@ JITServerHelpers::getROMClassData(const ClientSessionData::ClassInfo &classInfo,
       case CLASSINFO_ARRAY_CLASS :
          *(TR_OpaqueClassBlock **)data = classInfo._arrayClass;
          break;
+      case CLASSINFO_NULLRESTRICTED_ARRAY_CLASS :
+         *(TR_OpaqueClassBlock **)data = classInfo._nullRestrictedArrayClass;
+         break;
       case CLASSINFO_TOTAL_INSTANCE_SIZE :
          *(uintptr_t *)data = classInfo._totalInstanceSize;
          break;

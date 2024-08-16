@@ -405,6 +405,7 @@ ClientSessionData::ClassInfo::ClassInfo(TR_PersistentMemory *persistentMemory) :
    _hostClass(NULL),
    _componentClass(NULL),
    _arrayClass(NULL),
+   _nullRestrictedArrayClass(NULL),
    _totalInstanceSize(0),
    _constantPool(NULL),
    _classFlags(0),

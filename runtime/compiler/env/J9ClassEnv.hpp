@@ -97,6 +97,10 @@ public:
    bool isValueTypeClassFlattened(TR_OpaqueClassBlock *clazz);
    bool isValueBasedOrValueTypeClass(TR_OpaqueClassBlock *);
 
+   bool isArrayNullRestricted(TR_OpaqueClassBlock *arrayClass);
+
+   J9Class *getNullRestrictedArrayClassFromArrayComponentClass(TR_OpaqueClassBlock *arrayClass);
+
    /** \brief
     *    Returns the size of the flattened array element
     *
