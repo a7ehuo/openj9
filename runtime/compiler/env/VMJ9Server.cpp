@@ -1171,6 +1171,30 @@ TR_J9ServerVM::getArrayClassFromComponentClass(TR_OpaqueClassBlock *componentCla
    return arrayClass;
    }
 
+TR_OpaqueClassBlock *
+TR_J9ServerVM::getNullRestrictedArrayClassFromComponentClass(TR_OpaqueClassBlock *componentClass)
+   {
+   JITServer::ServerStream *stream = _compInfoPT->getMethodBeingCompiled()->_stream;
+   TR_OpaqueClassBlock *arrayClass = NULL;
+   JITServerHelpers::getAndCacheRAMClassInfo((J9Class *)componentClass, _compInfoPT->getClientData(), stream, JITServerHelpers::CLASSINFO_NULLRESTRICTED_ARRAY_CLASS, (void *)&arrayClass);
+   if (!arrayClass)
+      {
+      stream->write(JITServer::MessageType::VM_getNullRestrictedArrayClassFromComponentClass, componentClass);
+      arrayClass = std::get<0>(stream->read<TR_OpaqueClassBlock *>());
+      if (arrayClass)
+         {
+         // if client initialized arrayClass, cache the new value
+         OMR::CriticalSection getRemoteROMClass(_compInfoPT->getClientData()->getROMMapMonitor());
+         auto it = _compInfoPT->getClientData()->getROMClassMap().find((J9Class*) componentClass);
+         if (it != _compInfoPT->getClientData()->getROMClassMap().end())
+            {
+            it->second._nullRestrictedArrayClass = arrayClass;
+            }
+         }
+      }
+   return arrayClass;
+   }
+
 J9Class *
 TR_J9ServerVM::matchRAMclassFromROMclass(J9ROMClass *clazz, TR::Compilation *comp)
    {
@@ -3234,6 +3258,27 @@ TR_J9SharedCacheServerVM::getArrayClassFromComponentClass(TR_OpaqueClassBlock * 
 
    bool validated = false;
    TR_OpaqueClassBlock *arrayClass = TR_J9ServerVM::getArrayClassFromComponentClass(componentClass);
+
+   if (comp->getOption(TR_UseSymbolValidationManager))
+      {
+      validated = comp->getSymbolValidationManager()->addArrayClassFromComponentClassRecord(arrayClass, componentClass);
+      }
+   else
+      {
+      if (((TR_ResolvedRelocatableJ9JITServerMethod *) comp->getCurrentMethod())->validateArbitraryClass(comp, (J9Class *) componentClass))
+         validated = true;
+      }
+   return validated ? arrayClass : NULL;
+   }
+
+TR_OpaqueClassBlock *
+TR_J9SharedCacheServerVM::getNullRestrictedArrayClassFromComponentClass(TR_OpaqueClassBlock * componentClass)
+   {
+   TR::Compilation* comp = _compInfoPT->getCompilation();
+   TR_ASSERT(comp, "Should be called only within a compilation");
+
+   bool validated = false;
+   TR_OpaqueClassBlock *arrayClass = TR_J9ServerVM::getNullRestrictedArrayClassFromComponentClass(componentClass);
 
    if (comp->getOption(TR_UseSymbolValidationManager))
       {
