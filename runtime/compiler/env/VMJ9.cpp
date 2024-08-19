@@ -2917,6 +2917,12 @@ TR_J9VMBase::testIsClassArrayType(TR::Node *j9ClassRefNode)
    }
 
 TR::Node *
+TR_J9VMBase::testIsArrayClassNullRestrictedType(TR::Node *j9ClassRefNode)
+   {
+   return testAreSomeClassFlagsSet(j9ClassRefNode, J9ClassArrayIsNullRestricted);
+   }
+
+TR::Node *
 TR_J9VMBase::loadArrayClassComponentType(TR::Node *j9ClassRefNode)
    {
    TR::SymbolReference *arrayCompSymRef = TR::comp()->getSymRefTab()->findOrCreateArrayComponentTypeSymbolRef();
@@ -2936,12 +2942,6 @@ TR_J9VMBase::checkSomeArrayCompClassFlags(TR::Node *arrayBaseAddressNode, TR::IL
    TR::Node *ifNode = TR::Node::createif(ifCmpOp, maskedFlagsNode, TR::Node::iconst(arrayBaseAddressNode, 0));
 
    return ifNode;
-   }
-
-TR::Node *
-TR_J9VMBase::checkArrayCompClassPrimitiveValueType(TR::Node *arrayBaseAddressNode, TR::ILOpCodes ifCmpOp)
-   {
-   return checkSomeArrayCompClassFlags(arrayBaseAddressNode, ifCmpOp, J9ClassIsPrimitiveValueType);
    }
 
 TR::Node *
