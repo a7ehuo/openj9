@@ -973,7 +973,7 @@ J9::ValuePropagation::constrainRecognizedMethod(TR::Node *node)
       TR::Node *indexNode = node->getChild(elementIndexOpIndex);
       TR::Node *arrayRefNode = node->getChild(arrayRefOpIndex);
       TR::VPConstraint *arrayConstraint = getConstraint(arrayRefNode, arrayRefGlobal);
-      TR_YesNoMaybe isCompTypePrimVT = isArrayCompTypePrimitiveValueType(arrayConstraint);
+      TR_YesNoMaybe isCompTypePrimVT = isArrayNullRestricted(arrayConstraint);
 
       TR::Node *storeValueNode = NULL;
       TR::VPConstraint *storeValueConstraint = NULL;
@@ -1076,7 +1076,9 @@ J9::ValuePropagation::constrainRecognizedMethod(TR::Node *node)
       bool canTransformFlattenedArrayElementLoadStoreUseTypeHint = false;
       bool canTransformUnflattenedArrayElementLoadStoreUseTypeHint = false;
       bool canTransformIdentityArrayElementLoadStoreUseTypeHint = false;
-      static const char *disableFlattenedArrayElementTypeHintXForm = feGetEnv("TR_DisableFlattenedArrayElementTypeHintXForm");
+      // Disable transformation based on type hint which is no longer sufficient enough to decide whether or not
+      // the array is null restricted or not
+      static const char *enableFlattenedArrayElementTypeHintXForm = feGetEnv("TR_EnableFlattenedArrayElementTypeHintXForm");
       static const char *enableUnflattenedArrayElementTypeHintXForm = feGetEnv("TR_EnableUnflattenedArrayElementTypeHintXForm");
       TR_OpaqueClassBlock *typeHintClass = arrayConstraint ? arrayConstraint->getTypeHintClass() : NULL;
 
@@ -1098,7 +1100,7 @@ J9::ValuePropagation::constrainRecognizedMethod(TR::Node *node)
             {
             if (TR::Compiler->cls.isValueTypeClassFlattened(hintComponentClass))
                {
-               if (!disableFlattenedArrayElementTypeHintXForm)
+               if (enableFlattenedArrayElementTypeHintXForm)
                   {
                   if (isLoadFlattenableArrayElement)
                      {
@@ -2949,7 +2951,7 @@ J9::ValuePropagation::isArrayElementFlattened(TR::VPConstraint *arrayConstraint)
       return TR_no;
       }
 
-   TR_YesNoMaybe isCompTypePrimVT = isArrayCompTypePrimitiveValueType(arrayConstraint);
+   TR_YesNoMaybe isCompTypePrimVT = isArrayNullRestricted(arrayConstraint);
 
    if (isCompTypePrimVT == TR_yes)
       {
@@ -2969,7 +2971,7 @@ J9::ValuePropagation::isArrayElementFlattened(TR::VPConstraint *arrayConstraint)
    }
 
 TR_YesNoMaybe
-J9::ValuePropagation::isArrayCompTypePrimitiveValueType(TR::VPConstraint *arrayConstraint)
+J9::ValuePropagation::isArrayNullRestricted(TR::VPConstraint *arrayConstraint)
    {
    if (!TR::Compiler->om.areValueTypesEnabled() ||
        !TR::Compiler->om.areFlattenableValueTypesEnabled()) // Only null restricted or primitive value type are flattenable
@@ -2988,45 +2990,69 @@ J9::ValuePropagation::isArrayCompTypePrimitiveValueType(TR::VPConstraint *arrayC
       return TR_maybe;
       }
 
-   TR_OpaqueClassBlock *arrayComponentClass = fe()->getComponentClassFromArrayClass(arrayConstraint->getClass());
+   TR_OpaqueClassBlock *arrayClass = arrayConstraint->getClass();
 
-   // Cases to consider:
-   //
-   //   - Is no information available about the component type of the array?
-   //     If not, assume it might be a primitive value type.
-   //   - Is the component type definitely a identity type?
-   //   - Is the component type definitely a primitive value type?
-   //   - Is the component type definitely a value type, but not primitive?
-   //   - Is the component type either an abstract class or an interface
-   //     (i.e., not a concrete class)?  If so, it might be a value type.
-   //   - Is the array an array of java/lang/Object?  See below.
-   //   - Otherwise, it must be a concrete class known not to be a value
-   //     type
-   //
-   if (!arrayComponentClass)
+#if defined(J9VM_OPT_VALHALLA_FLATTENABLE_VALUE_TYPES)
+   if (trace())
       {
-      return TR_maybe;
+      J9ArrayClass *j9Arrayclass = reinterpret_cast<J9ArrayClass*>(arrayClass);
+
+      char *arrayClassName = comp()->fej9()->getClassSignature(arrayClass, comp()->trMemory());
+      const char *companionArrayName = j9Arrayclass->companionArray ? comp()->fej9()->getClassSignature(reinterpret_cast<TR_OpaqueClassBlock*>(j9Arrayclass->companionArray), comp()->trMemory()) : "";
+
+      traceMsg(comp(), "%s: arrayClass %p %d %d %s DEBUG\n", __FUNCTION__, arrayClass, J9_IS_J9ARRAYCLASS_NULL_RESTRICTED(j9Arrayclass), TR::Compiler->cls.classHasIdentity(arrayClass), arrayClassName);
+      traceMsg(comp(), "%s: companionArray %p %d %d %s DEBUG\n", __FUNCTION__, j9Arrayclass->companionArray,
+         j9Arrayclass->companionArray ? J9_IS_J9ARRAYCLASS_NULL_RESTRICTED(j9Arrayclass->companionArray) : -1,
+         j9Arrayclass->companionArray ? TR::Compiler->cls.classHasIdentity(reinterpret_cast<TR_OpaqueClassBlock*>(j9Arrayclass->companionArray)) : -1, companionArrayName);
       }
+#endif /* defined(J9VM_OPT_VALHALLA_FLATTENABLE_VALUE_TYPES) */
 
-   // No need to check array class type because array classes should be marked as having identity.
-   if (TR::Compiler->cls.classHasIdentity(arrayComponentClass))
+   if (TR::Compiler->cls.isArrayNullRestricted(comp(), arrayClass))
       {
-      return TR_no;
-      }
-
-   if (TR::Compiler->cls.isPrimitiveValueTypeClass(arrayComponentClass))
-      {
+      if (trace()) traceMsg(comp(), "%s: return TR_yes. arrayClass isArrayNullRestricted DEBUG\n", __FUNCTION__);
       return TR_yes;
       }
 
-   if (TR::Compiler->cls.isValueTypeClass(arrayComponentClass))
+   TR_OpaqueClassBlock *arrayComponentClass = fe()->getComponentClassFromArrayClass(arrayConstraint->getClass());
+
+   if (!arrayComponentClass)
       {
-      return TR_no;
+      if (trace()) traceMsg(comp(), "%s: return TR_maybe. arrayComponentClass NULL DEBUG\n", __FUNCTION__);
+      return TR_maybe;
       }
+
+#if defined(J9VM_OPT_VALHALLA_FLATTENABLE_VALUE_TYPES)
+   if (trace())
+      {
+      J9Class *j9Componentclass = reinterpret_cast<J9Class*>(arrayComponentClass);
+
+      char *arrayComponentClassName = comp()->fej9()->getClassSignature(arrayComponentClass, comp()->trMemory());
+      const char *nullRestrictedArrayClassName = j9Componentclass->nullRestrictedArrayClass ? comp()->fej9()->getClassSignature(reinterpret_cast<TR_OpaqueClassBlock*>(j9Componentclass->nullRestrictedArrayClass), comp()->trMemory()) : "";
+      const char *arrayClassName2 = j9Componentclass->arrayClass ? comp()->fej9()->getClassSignature(reinterpret_cast<TR_OpaqueClassBlock*>(j9Componentclass->arrayClass), comp()->trMemory()) : "";
+
+      traceMsg(comp(), "%s: arrayComponentClass %p %d %d %s DEBUG\n", __FUNCTION__, arrayComponentClass, J9_IS_J9ARRAYCLASS_NULL_RESTRICTED(j9Componentclass),
+            TR::Compiler->cls.classHasIdentity(arrayComponentClass), arrayComponentClassName);
+      traceMsg(comp(), "%s: nullRestrictedArray %p %d %d %s DEBUG\n", __FUNCTION__, j9Componentclass->nullRestrictedArrayClass,
+            j9Componentclass->nullRestrictedArrayClass ? J9_IS_J9ARRAYCLASS_NULL_RESTRICTED(j9Componentclass->nullRestrictedArrayClass) : -1,
+            j9Componentclass->nullRestrictedArrayClass ? TR::Compiler->cls.classHasIdentity(reinterpret_cast<TR_OpaqueClassBlock*>(j9Componentclass->nullRestrictedArrayClass)) : -1, nullRestrictedArrayClassName);
+      traceMsg(comp(), "%s: arrayClass2 %p %d %d %s DEBUG\n", __FUNCTION__, j9Componentclass->arrayClass,
+            j9Componentclass->arrayClass ? J9_IS_J9ARRAYCLASS_NULL_RESTRICTED(j9Componentclass->arrayClass) : -1,
+            j9Componentclass->arrayClass ? TR::Compiler->cls.classHasIdentity(reinterpret_cast<TR_OpaqueClassBlock*>(j9Componentclass->arrayClass)) : -1, arrayClassName2);
+      }
+#endif /* defined(J9VM_OPT_VALHALLA_FLATTENABLE_VALUE_TYPES) */
 
    if (!TR::Compiler->cls.isConcreteClass(comp(), arrayComponentClass))
       {
-      return TR_maybe;
+      if (TR::Compiler->cls.classHasIdentity(arrayComponentClass))
+         {
+         if (trace()) traceMsg(comp(), "%s: return TR_no. abstract classHasIdentity DEBUG\n", __FUNCTION__);
+         return TR_no;
+         }
+      else
+         {
+         if (trace()) traceMsg(comp(), "%s: return TR_maybe. Not concrete class DEBUG\n", __FUNCTION__);
+         return TR_maybe;
+         }
       }
 
    int32_t len;
@@ -3041,14 +3067,16 @@ J9::ValuePropagation::isArrayCompTypePrimitiveValueType(TR::VPConstraint *arrayC
    if (sig && sig[0] == '[' && len == 19
        && !strncmp(sig, "[Ljava/lang/Object;", 19))
       {
+      if (trace()) traceMsg(comp(), "%s: return %s. java.lang.Object DEBUG\n", __FUNCTION__, (arrayConstraint->isFixedClass()) ? "TR_no" : "TR_maybe");
       return (arrayConstraint->isFixedClass()) ? TR_no : TR_maybe;
       }
 
    // If we get to this point, we know this is not an array of
    // java/lang/Object, and we know the component must be a concrete
-   // class that is not a value type.
+   // class.
    //
-   return TR_no;
+   if (trace()) traceMsg(comp(), "%s: return %s. concrete classHasIdentity %d DEBUG\n\n", __FUNCTION__, (TR::Compiler->cls.classHasIdentity(arrayComponentClass)) ? "TR_no" : "TR_maybe", TR::Compiler->cls.classHasIdentity(arrayComponentClass));
+   return TR::Compiler->cls.classHasIdentity(arrayComponentClass) ? TR_no : TR_maybe;
    }
 
 void
@@ -4121,8 +4149,45 @@ J9::ValuePropagation::innerConstrainAcall(TR::Node *node)
                addGlobalConstraint(node, TR::VPNonNullObject::create(this));
                }
             }
+         else if (method->getRecognizedMethod() == TR::jdk_internal_value_ValueClass_newArrayInstance)
+            {
+            /*
+             *   n12n   acall  jdk/internal/value/ValueClass.newArrayInstance(Ljdk/internal/value/CheckedType;I)[Ljava/lang/Object;
+             *   n9n      acall  jdk/internal/value/NullRestrictedCheckedType.of(Ljava/lang/Class;)Ljdk/internal/value/NullRestrictedCheckedType;
+             *   n8n        aloadi  <javaLangClassFromClass>
+             *   n7n          loadaddr  SomeValueClass
+             *   n11n     iload  Test.ARRAY_SIZE
+             */
+            bool isGlobal;
+            constraint = getConstraint(node->getFirstChild(), isGlobal);
+            TR_ResolvedMethod *owningMethod = symRef->getOwningMethod(comp());
+            TR_OpaqueClassBlock *nullRestrictedCheckedTypeClass = fe()->getClassFromSignature("jdk/internal/value/NullRestrictedCheckedType", 44, owningMethod);
+
+            if (constraint &&
+                constraint->isFixedClass() &&
+                (comp()->fej9()->isInstanceOf(constraint->getClass(), nullRestrictedCheckedTypeClass, true, true) == TR_yes))
+               {
+               if (trace())
+                  traceMsg(comp(), "%s: node n%dn fixed class %p isInstanceOf nullRestrictedCheckedTypeClass DEBUG\n", __FUNCTION__, node->getGlobalIndex(), constraint->getClass());
+
+               constraint = getConstraint(node->getFirstChild()->getFirstChild(), isGlobal);
+               TR_OpaqueClassBlock *arrayComponentClass = (constraint && constraint->isFixedClass()) ? constraint->getClass() : NULL;
+               TR_OpaqueClassBlock *nullRestrictedArrayClass = arrayComponentClass ? fe()->getNullRestrictedArrayClassFromComponentClass(arrayComponentClass) : NULL;
+
+               if (trace())
+                  traceMsg(comp(), "%s: node n%dn arrayComponentClass %p nullRestrictedArrayClass %p DEBUG\n", __FUNCTION__, node->getGlobalIndex(), arrayComponentClass, nullRestrictedArrayClass);
+
+               if (nullRestrictedArrayClass)
+                  {
+                  TR::VPConstraint *newConstraint = TR::VPFixedClass::create(this, nullRestrictedArrayClass);
+                  addBlockOrGlobalConstraint(node, newConstraint, isGlobal);
+                  addGlobalConstraint(node, TR::VPNonNullObject::create(this));
+                  return node;
+                  }
+               }
+            }
          }
-      else
+      else // if (!node->getOpCode().isIndirect())
          {
          if ((method->getRecognizedMethod() == TR::java_math_BigDecimal_add) ||
              (method->getRecognizedMethod() == TR::java_math_BigDecimal_subtract) ||

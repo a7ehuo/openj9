@@ -3393,9 +3393,7 @@ typedef struct J9Class {
 	/* A linked list of weak global references to every resolved MemberName whose clazz is this class. */
 	J9MemberNameListNode *memberNames;
 #endif /* defined(J9VM_OPT_OPENJDK_METHODHANDLE) */
-#if defined(J9VM_OPT_VALHALLA_FLATTENABLE_VALUE_TYPES)
 	struct J9Class *nullRestrictedArrayClass;
-#endif /* defined(J9VM_OPT_VALHALLA_FLATTENABLE_VALUE_TYPES) */
 } J9Class;
 
 /* Interface classes can never be instantiated, so the following fields in J9Class will not be used:
@@ -3492,13 +3490,11 @@ typedef struct J9ArrayClass {
 	/* A linked list of weak global references to every resolved MemberName whose clazz is this class. */
 	J9MemberNameListNode *memberNames;
 #endif /* defined(J9VM_OPT_OPENJDK_METHODHANDLE) */
-#if defined(J9VM_OPT_VALHALLA_FLATTENABLE_VALUE_TYPES)
 	/*
 	 * A nullable J9ArrayClass points to its null-restricted companion, if one exists.
 	 * A null-restricted J9ArrayClass points to its nullable companion, if one exists.
 	 */
 	struct J9Class *companionArray;
-#endif /* defined(J9VM_OPT_VALHALLA_FLATTENABLE_VALUE_TYPES) */
 } J9ArrayClass;
 
 
