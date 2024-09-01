@@ -3850,6 +3850,13 @@ void TR_ResolvedJ9Method::construct()
       {  TR::unknownMethod}
       };
 
+   static X ValueClassMethods[] =
+      {
+      {x(TR::jdk_internal_value_ValueClass_newArrayInstance, "newArrayInstance", "(Ljdk/internal/value/CheckedType;I)[Ljava/lang/Object;")},
+      {x(TR::jdk_internal_value_ValueClass_newNullRestrictedArray, "newArrayInstance", "(Ljava/lang/Class;I)[Ljava/lang/Object;")},
+      {  TR::unknownMethod}
+      };
+
    static X SpreadHandleMethods[] =
       {
       {x(TR::java_lang_invoke_SpreadHandle_numArgsToPassThrough,  "numArgsToPassThrough",   "()I")},
@@ -4186,6 +4193,7 @@ void TR_ResolvedJ9Method::construct()
       { "sun/nio/cs/ISO_8859_1$Decoder", EncodeMethods },
       { "java/io/ByteArrayOutputStream", ByteArrayOutputStreamMethods },
       { "java/lang/ScopedValue$Carrier", ScopedValueMethods },
+      { "jdk/internal/value/ValueClass", ValueClassMethods },
       { 0 }
       };
 
@@ -4396,6 +4404,10 @@ void TR_ResolvedJ9Method::construct()
       class17
       };
 
+   TR::Compilation *comp = TR::comp();
+   bool trace = comp ? comp->getOption(TR_TraceILGen) : false;
+   if (trace) traceMsg(comp, "%s: DEBUG isMethodInValidLibrary %d\n", __FUNCTION__, isMethodInValidLibrary());
+
    if (isMethodInValidLibrary())
       {
       char *className    = convertToMethod()->classNameChars();
@@ -4405,28 +4417,42 @@ void TR_ResolvedJ9Method::construct()
       char *sig          = convertToMethod()->signatureChars();
       int   sigLen       = convertToMethod()->signatureLength();
 
+      if (trace)
+         {
+         traceMsg(comp, "%s: DEBUG className %s classNameLen %d name %s nameLen %d\n", __FUNCTION__, className, classNameLen, name, nameLen);
+         traceMsg(comp, "%s: DEBUG sig %s sigLen %d\n", __FUNCTION__, sig, sigLen);
+         traceMsg(comp, "%s: DEBUG minRecognizedClassLength %d maxRecognizedClassLength %d\n", __FUNCTION__, minRecognizedClassLength, maxRecognizedClassLength);
+         }
+
       if (classNameLen >= minRecognizedClassLength && classNameLen <= maxRecognizedClassLength)
          {
          Y * cl = recognizedClasses[classNameLen - minRecognizedClassLength];
          if (cl)
             for (; cl->_class; ++cl)
+               {
                if (!strncmp(cl->_class, className, classNameLen))
                   {
+                  if (trace) traceMsg(comp, "%s: DEBUG cl->_class %s className %s classNameLen %d\n", __FUNCTION__, cl->_class, className, classNameLen);
                   for (X * m =  cl->_methods; m->_enum != TR::unknownMethod; ++m)
                      {
+                     if (trace) traceMsg(comp, "%s: DEBUG m->_nameLen %d m->_sigLen %d sigLen %d m->_name %s name %s nameLen %d\n", __FUNCTION__,
+                        m->_nameLen, m->_sigLen, sigLen, m->_name, name, nameLen);
                      if (m->_nameLen == nameLen && (m->_sigLen == sigLen || m->_sigLen == (int16_t)-1) &&
                          !strncmp(m->_name, name, nameLen) &&
                          (m->_sigLen == (int16_t)-1 || !strncmp(m->_sig,  sig,  sigLen)))
                         {
                         setRecognizedMethodInfo(m->_enum);
+                        if (trace) traceMsg(comp, "%s: DEBUG setRecognizedMethodInfo\n", __FUNCTION__);
                         break;
                         }
                      }
                   }
+               }
          }
 
       if (TR::Method::getMandatoryRecognizedMethod() == TR::unknownMethod)
          {
+         if (trace) traceMsg(comp, "%s: DEBUG TR::Method::getMandatoryRecognizedMethod() == TR::unknownMethod\n", __FUNCTION__);
          // Cases where multiple method names all map to the same RecognizedMethod
          //
          if ((classNameLen == 13) && !strncmp(className, "java/util/Map", 13))
@@ -7749,6 +7775,12 @@ TR_OpaqueClassBlock * TR_J9MethodParameterIterator::getOpaqueClass()
    TR_J9VMBase *fej9 = (TR_J9VMBase *)(_comp.fe());
    TR_ASSERT(*_sig == '[' || *_sig == 'L', "Asked for class of incorrect Java parameter.");
    if (_nextIncrBy == 0) getDataType();
+
+   // We can't trust the array class returned by signature if flattenable array is enabled.
+   // Both regular nullable array and null-restricted array have the same signature.
+   if (*_sig == '[' && TR::Compiler->om.areFlattenableValueTypesEnabled())
+      return NULL;
+
    return _resolvedMethod == NULL ? NULL :
       fej9->getClassFromSignature(_sig, _nextIncrBy, _resolvedMethod);
    }
