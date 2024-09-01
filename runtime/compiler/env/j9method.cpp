@@ -3847,6 +3847,13 @@ void TR_ResolvedJ9Method::construct()
       {  TR::unknownMethod}
       };
 
+   static X ValueClassMethods[] =
+      {
+      {x(TR::jdk_internal_value_ValueClass_newArrayInstance, "newArrayInstance", "(Ljdk/internal/value/CheckedType;I)[Ljava/lang/Object;")},
+      {x(TR::jdk_internal_value_ValueClass_newNullRestrictedArray, "newNullRestrictedArray", "(Ljava/lang/Class;I)[Ljava/lang/Object;")},
+      {  TR::unknownMethod}
+      };
+
    static X SpreadHandleMethods[] =
       {
       {x(TR::java_lang_invoke_SpreadHandle_numArgsToPassThrough,  "numArgsToPassThrough",   "()I")},
@@ -4183,6 +4190,7 @@ void TR_ResolvedJ9Method::construct()
       { "sun/nio/cs/ISO_8859_1$Decoder", EncodeMethods },
       { "java/io/ByteArrayOutputStream", ByteArrayOutputStreamMethods },
       { "java/lang/ScopedValue$Carrier", ScopedValueMethods },
+      { "jdk/internal/value/ValueClass", ValueClassMethods },
       { 0 }
       };
 
@@ -7765,6 +7773,12 @@ TR_OpaqueClassBlock * TR_J9MethodParameterIterator::getOpaqueClass()
    TR_J9VMBase *fej9 = (TR_J9VMBase *)(_comp.fe());
    TR_ASSERT(*_sig == '[' || *_sig == 'L', "Asked for class of incorrect Java parameter.");
    if (_nextIncrBy == 0) getDataType();
+
+   // We can't trust the array class returned by signature if flattenable array is enabled.
+   // Both regular nullable array and null-restricted array have the same signature.
+   if (*_sig == '[' && TR::Compiler->om.areFlattenableValueTypesEnabled())
+      return NULL;
+
    return _resolvedMethod == NULL ? NULL :
       fej9->getClassFromSignature(_sig, _nextIncrBy, _resolvedMethod);
    }
