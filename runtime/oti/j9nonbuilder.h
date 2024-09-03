@@ -96,6 +96,7 @@
 #define J9ClassAllowsInitialDefaultValue 0x400000
 #define J9ClassAllowsNonAtomicCreation 0x800000
 #define J9ClassNeedToPruneMemberNames 0x1000000
+#define J9ClassArrayIsNullRestricted 0x2000000
 
 /* @ddr_namespace: map_to_type=J9FieldFlags */
 
