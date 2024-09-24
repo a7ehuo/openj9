@@ -3928,6 +3928,10 @@ J9::ValuePropagation::innerConstrainAcall(TR::Node *node)
       {
       if (!node->getOpCode().isIndirect())
          {
+         if (trace())
+            traceMsg(comp(), "%s: DEBUG node n%dn getRecognizedMethod %d jdk_internal_value_ValueClass_newArrayInstance %d\n", __FUNCTION__,
+               node->getGlobalIndex(), method->getRecognizedMethod(), TR::jdk_internal_value_ValueClass_newArrayInstance);
+
          // Handle VectorSupport operations
          bool isVectorSupportLoad =
          method->getRecognizedMethod() == TR::jdk_internal_vm_vector_VectorSupport_load;

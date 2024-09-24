@@ -4434,6 +4434,9 @@ void TR_ResolvedJ9Method::construct()
 
       if (TR::Method::getMandatoryRecognizedMethod() == TR::unknownMethod)
          {
+         TR::Compilation *comp = TR::comp();
+         bool trace = comp->getOption(TR_TraceILGen);
+         if (trace) traceMsg(comp, "%s: DEBUG TR::Method::getMandatoryRecognizedMethod() == TR::unknownMethod\n", __FUNCTION__);
          // Cases where multiple method names all map to the same RecognizedMethod
          //
          if ((classNameLen == 13) && !strncmp(className, "java/util/Map", 13))
@@ -4520,6 +4523,7 @@ void TR_ResolvedJ9Method::construct()
             }
           else if ((classNameLen == 29) && !strncmp(className,"jdk/internal/value/ValueClass", 29))
             {
+            if (trace) traceMsg(comp, "%s: DEBUG recognize jdk/internal/value/ValueClass name %s\n", __FUNCTION__, name);
             if (!strncmp(name, "newArrayInstance_", 17))
                setRecognizedMethodInfo(TR::jdk_internal_value_ValueClass_newArrayInstance);
             }
