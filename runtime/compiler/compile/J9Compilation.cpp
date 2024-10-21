@@ -727,17 +727,17 @@ J9::Compilation::canAllocateInline(TR::Node* node, TR_OpaqueClassBlock* &classIn
             }
          }
 
-      classSymRef   = classRef->getSymbolReference();
+      classSymRef = classRef->getSymbolReference();
       // Can't skip the allocation if the class is unresolved
       //
       clazz = self()->fej9vm()->getClassForAllocationInlining(self(), classSymRef);
       if (clazz == NULL)
          return -1;
 
-      // Arrays of null-restricted (a.k.a, primitive value type) classes must have all their elements initialized
-      // with the default value of the component type.  For now, prevent inline allocation of them.
-      //
-      if (areValueTypesEnabled && TR::Compiler->cls.isPrimitiveValueTypeClass(reinterpret_cast<TR_OpaqueClassBlock*>(clazz)))
+      // Arrays of null-restricted classes must have all their elements initialized
+      // with the default value of the component type.
+      // If null-restricted array class exists, prevent inline allocation of them.
+      if (areValueTypesEnabled && self()->fej9()->getNullRestrictedArrayClassFromComponentClass(TR::Compiler->cls.convertClassPtrToClassOffset(clazz)))
          {
          return -1;
          }

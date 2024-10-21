@@ -1191,8 +1191,9 @@ int32_t TR_EscapeAnalysis::performAnalysisOnce()
          {
          // Array Candidates for contiguous allocation that have unresolved
          // base classes must be rejected, since we cannot initialize the array
-         // header.  If the component type is a primitive value type, reject the array
-         // as we can't initialize the elements to the default value yet.
+         // header
+         // If the null-restricted array exists, reject the array as we can't
+         // initialize the elements to the default value yet.
          //
          if (candidate->isContiguousAllocation())
             {
@@ -1208,11 +1209,10 @@ int32_t TR_EscapeAnalysis::performAnalysisOnce()
             else
                {
                TR_OpaqueClassBlock *clazz = (TR_OpaqueClassBlock*)classNode->getSymbol()->castToStaticSymbol()->getStaticAddress();
-
-               if (TR::Compiler->cls.isPrimitiveValueTypeClass(clazz))
+               if (clazz && comp()->fej9()->getNullRestrictedArrayClassFromComponentClass(clazz))
                   {
                   if (trace())
-                     traceMsg(comp(), "   Fail [%p] because array has primitive value type elements\n", candidate->_node);
+                     traceMsg(comp(), "   Fail [%p] because array could be null-restricted array\n", candidate->_node);
                   rememoize(candidate);
                   _candidates.remove(candidate);
                   }
