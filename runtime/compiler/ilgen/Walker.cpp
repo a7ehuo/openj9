@@ -304,7 +304,7 @@ TR::Block * TR_J9ByteCodeIlGenerator::walker(TR::Block * prevBlock)
          case J9BCaload2: loadAuto(TR::Address, 2); _bcIndex += 1; break;
          case J9BCaload3: loadAuto(TR::Address, 3); _bcIndex += 1; break;
 
-         case J9BCiaload: loadArrayElement(TR::Int32);                              _bcIndex += 1; break;
+         case J9BCaloadi: loadArrayElement(TR::Int32);                              _bcIndex += 1; break;
          case J9BClaload: loadArrayElement(TR::Int64);                              _bcIndex += 1; break;
          case J9BCfaload: loadArrayElement(TR::Float);                              _bcIndex += 1; break;
          case J9BCdaload: loadArrayElement(TR::Double);                             _bcIndex += 1; break;
@@ -359,7 +359,7 @@ TR::Block * TR_J9ByteCodeIlGenerator::walker(TR::Block * prevBlock)
          case J9BCastore2: storeAuto(TR::Address, 2); _bcIndex += 1; break;
          case J9BCastore3: storeAuto(TR::Address, 3); _bcIndex += 1; break;
 
-         case J9BCiastore:                   storeArrayElement(TR::Int32);            _bcIndex += 1; break;
+         case J9BCastorei:                   storeArrayElement(TR::Int32);            _bcIndex += 1; break;
          case J9BClastore:                   storeArrayElement(TR::Int64);            _bcIndex += 1; break;
          case J9BCfastore:                   storeArrayElement(TR::Float);            _bcIndex += 1; break;
          case J9BCdastore:                   storeArrayElement(TR::Double);           _bcIndex += 1; break;

@@ -907,7 +907,7 @@ TR_J9EstimateCodeSize::processBytecodeAndGenerateCFG(TR_CallTarget *calltarget, 
             if (calltarget->_myCallSite->_isIndirectCall)
                thisOnStack = true;
             break;
-         case J9BCiastore:
+         case J9BCastorei:
          case J9BClastore:
          case J9BCfastore:
          case J9BCdastore:
@@ -917,7 +917,7 @@ TR_J9EstimateCodeSize::processBytecodeAndGenerateCFG(TR_CallTarget *calltarget, 
          case J9BCsastore: //array stores can change the global state - hence unsanitizeable
             flags[i].set(InterpreterEmulator::BytecodePropertyFlag::isUnsanitizeable);
             break;
-         case J9BCiaload:
+         case J9BCaloadi:
          case J9BClaload:
          case J9BCfaload:
          case J9BCdaload:

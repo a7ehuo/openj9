@@ -325,14 +325,14 @@ const TR_J9ByteCode TR_J9ByteCodeIterator::_opCodeToByteCodeEnum[] =
    /* 34  */ J9BCfload0, J9BCfload1, J9BCfload2, J9BCfload3,
    /* 38  */ J9BCdload0, J9BCdload1, J9BCdload2, J9BCdload3,
    /* 42  */ J9BCaload0, J9BCaload1, J9BCaload2, J9BCaload3,
-   /* 46  */ J9BCiaload, J9BClaload, J9BCfaload, J9BCdaload, J9BCaaload, J9BCbaload, J9BCcaload, J9BCsaload,
+   /* 46  */ J9BCaloadi, J9BClaload, J9BCfaload, J9BCdaload, J9BCaaload, J9BCbaload, J9BCcaload, J9BCsaload,
    /* 54  */ J9BCistore, J9BClstore, J9BCfstore, J9BCdstore, J9BCastore,
    /* 59  */ J9BCistore0, J9BCistore1, J9BCistore2, J9BCistore3,
    /* 63  */ J9BClstore0, J9BClstore1, J9BClstore2, J9BClstore3,
    /* 67  */ J9BCfstore0, J9BCfstore1, J9BCfstore2, J9BCfstore3,
    /* 71  */ J9BCdstore0, J9BCdstore1, J9BCdstore2, J9BCdstore3,
    /* 75  */ J9BCastore0, J9BCastore1, J9BCastore2, J9BCastore3,
-   /* 79  */ J9BCiastore, J9BClastore, J9BCfastore, J9BCdastore, J9BCaastore, J9BCbastore, J9BCcastore, J9BCsastore,
+   /* 79  */ J9BCastorei, J9BClastore, J9BCfastore, J9BCdastore, J9BCaastore, J9BCbastore, J9BCcastore, J9BCsastore,
    /* 87  */ J9BCpop, J9BCpop2,
    /* 89  */ J9BCdup, J9BCdupx1, J9BCdupx2, J9BCdup2, J9BCdup2x1, J9BCdup2x2,
    /* 95  */ J9BCswap,
@@ -441,7 +441,7 @@ const uint8_t TR_J9ByteCodeIterator::_byteCodeFlags[] =
                              0x01, // J9BCaload1
                              0x01, // J9BCaload2
                              0x01, // J9BCaload3
-                             0x01, // J9BCiaload
+                             0x01, // J9BCaloadi
                              0x01, // J9BClaload
                              0x01, // J9BCfaload
                              0x01, // J9BCdaload
@@ -484,7 +484,7 @@ const uint8_t TR_J9ByteCodeIterator::_byteCodeFlags[] =
                              0x01, // J9BCastore1
                              0x01, // J9BCastore2
                              0x01, // J9BCastore3
-                             0x01, // J9BCiastore
+                             0x01, // J9BCastorei
                              0x01, // J9BClastore
                              0x01, // J9BCfastore
                              0x01, // J9BCdastore
@@ -663,7 +663,7 @@ const uint8_t TR_J9ByteCodeIterator::_estimatedCodeSize[] =
    1, // J9BCaload1
    1, // J9BCaload2
    1, // J9BCaload3
-   5, // J9BCiaload
+   5, // J9BCaloadi
    6, // J9BClaload
    5, // J9BCfaload
    5, // J9BCdaload
@@ -706,7 +706,7 @@ const uint8_t TR_J9ByteCodeIterator::_estimatedCodeSize[] =
    1, // J9BCastore1
    1, // J9BCastore2
    1, // J9BCastore3
-   5, // J9BCiastore
+   5, // J9BCastorei
    6, // J9BClastore
    5, // J9BCfastore
    5, // J9BCdastore
