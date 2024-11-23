@@ -42,6 +42,9 @@
 #include "ut_j9codertvm.h"
 #endif
 
+#include <execinfo.h>
+#include <signal.h>
+
 #define J9JIT_ARTIFACT_SEARCH_CACHE_ENABLE
 
 #ifndef J9VM_INTERP_STACKWALK_TRACING
@@ -380,6 +383,7 @@ static UDATA walkTransitionFrame(J9StackWalkState *walkState)
 			case J9_STACK_FLAGS_JIT_LOOKUP_RESOLVE:
 			case J9_STACK_FLAGS_JIT_RECOMPILATION_RESOLVE:
 			case J9_STACK_FLAGS_JIT_INDUCE_OSR_RESOLVE:
+				//jitPrintFrameType(walkState, "JIT ResolveMethod");
 				jitWalkResolveMethodFrame(walkState);
 				break;
 			case J9_STACK_FLAGS_JIT_FAILED_METHOD_MONITOR_ENTER_RESOLVE:
@@ -485,12 +489,29 @@ static UDATA walkTransitionFrame(J9StackWalkState *walkState)
 
 static void jitPrintFrameType(J9StackWalkState * walkState, char * frameType)
 {
-	swPrintf(walkState, 2, "%s frame: bp = %p, pc = %p, unwindSP = %p, cp = %p, arg0EA = %p, jitInfo = %p\n",
+	printf("%s frame: bp = %p, pc = %p, unwindSP = %p, cp = %p, arg0EA = %p, jitInfo = %p\n",
 			 frameType, walkState->bp, walkState->pc, walkState->unwindSP,
 			 walkState->constantPool, walkState->arg0EA, walkState->jitInfo);
-	swPrintMethod(walkState);
-	swPrintf(walkState, 3, "\tBytecode index = %d, inlineDepth = %d, PC offset = %p\n",
-			 walkState->bytecodePCOffset, walkState->inlineDepth, walkState->pc - (U_8 *) walkState->method->extra);
+
+	J9Method * method = walkState->method;
+
+	if (method) {
+		PORT_ACCESS_FROM_WALKSTATE(walkState);
+		J9UTF8 * className = J9ROMCLASS_CLASSNAME(UNTAGGED_METHOD_CP(method)->ramClass->romClass);
+		J9ROMMethod * romMethod = J9_ROM_METHOD_FROM_RAM_METHOD(method);
+		J9UTF8 * name = J9ROMMETHOD_NAME(romMethod);
+		J9UTF8 * sig = J9ROMMETHOD_SIGNATURE(romMethod);
+
+		printf("\tMethod: %.*s.%.*s%.*s "
+			"(%p)"
+			"\n", (U_32) J9UTF8_LENGTH(className), J9UTF8_DATA(className), (U_32) J9UTF8_LENGTH(name), J9UTF8_DATA(name), (U_32) J9UTF8_LENGTH(sig), J9UTF8_DATA(sig), walkState->method);
+	}
+   else {
+      printf("\tMethod: NULL\n");
+   }
+
+	printf("\tBytecode index = %ld, inlineDepth = %ld, PC offset = %p\n",
+			 walkState->bytecodePCOffset, walkState->inlineDepth, walkState->method ? (void *)(walkState->pc - (U_8 *) walkState->method->extra) : NULL);
 }
 #endif /* J9VM_INTERP_STACKWALK_TRACING (autogen) */
 
@@ -790,6 +811,26 @@ static void jitWalkRegisterMap(J9StackWalkState *walkState, void *stackMap, J9JI
 #else
 #define JIT_FPR_PARM_ADDRESS(walkState, fpParmNumber) (((U_64*)((walkState)->walkedEntryLocalStorage->jitFPRegisterStorageBase)) + jitFloatArgumentRegisterNumbers[fpParmNumber])
 #endif
+
+typedef struct debugStruct {
+      UDATA resolveFrameType;
+      UDATA cpIndex;
+      J9ConstantPool * constantPool;
+      J9ROMMethodRef * romMethodRef;
+      UDATA * indexAndLiterals;
+
+      struct J9VMThread* walkStateWalkThread;
+      struct J9VMThread* walkStateCurrentThread;
+      struct J9Method* walkStateMethod;
+      struct J9Method* walkStateLiterals;
+      U_8* walkStatePC;
+      U_8* walkThreadPC;
+      struct J9Method*  walkThreadLiterals;
+} debugStruct;
+
+#define TRACK_STACK_SIZE 64
+static int trackStackTraceIndex = 0;
+static debugStruct trackStackTrace[TRACK_STACK_SIZE];
 
 static void
 jitWalkResolveMethodFrame_walkD(J9StackWalkState *walkState, UDATA ** pendingSendScanCursor, UDATA * floatRegistersRemaining)
@@ -1131,6 +1172,7 @@ static void jitWalkResolveMethodFrame(J9StackWalkState *walkState)
 		UDATA cpIndex;
 		J9ConstantPool * constantPool;
 		J9ROMMethodRef * romMethodRef;
+		UDATA * indexAndLiterals = NULL;
 
 		if ((resolveFrameType == J9_STACK_FLAGS_JIT_STATIC_METHOD_RESOLVE) || (resolveFrameType == J9_STACK_FLAGS_JIT_SPECIAL_METHOD_RESOLVE)) {
 #ifdef J9SW_JIT_FLOAT_ARGUMENT_REGISTER_COUNT
@@ -1145,7 +1187,7 @@ static void jitWalkResolveMethodFrame(J9StackWalkState *walkState)
 #endif
 			cpIndex = jitGetRealCPIndex(walkState->currentThread, J9_CLASS_FROM_CP(constantPool)->romClass, cpIndex);
 		} else {
-			UDATA * indexAndLiterals = (UDATA *) JIT_RESOLVE_PARM(1);
+			indexAndLiterals = (UDATA *) JIT_RESOLVE_PARM(1);
 
 			constantPool = (J9ConstantPool *) *indexAndLiterals;
 			cpIndex = *(indexAndLiterals + 1);
@@ -1170,6 +1212,41 @@ static void jitWalkResolveMethodFrame(J9StackWalkState *walkState)
 
 		romMethodRef = (J9ROMMethodRef *) &(constantPool->romConstantPool[cpIndex]);
 		signature = J9ROMNAMEANDSIGNATURE_SIGNATURE(J9ROMMETHODREF_NAMEANDSIGNATURE(romMethodRef));
+
+      const U_8* debugSig = (U_8*)(J9UTF8_DATA(signature));
+
+      if (debugSig[0] != '(') {
+         trackStackTrace[trackStackTraceIndex].resolveFrameType = resolveFrameType;
+         trackStackTrace[trackStackTraceIndex].cpIndex = cpIndex;
+         trackStackTrace[trackStackTraceIndex].constantPool = constantPool;
+         trackStackTrace[trackStackTraceIndex].romMethodRef = romMethodRef;
+         trackStackTrace[trackStackTraceIndex].indexAndLiterals = indexAndLiterals;
+
+         trackStackTrace[trackStackTraceIndex].walkStateWalkThread = walkState->walkThread;
+         trackStackTrace[trackStackTraceIndex].walkStateCurrentThread = walkState->currentThread;
+         trackStackTrace[trackStackTraceIndex].walkStateMethod = walkState->method;
+         trackStackTrace[trackStackTraceIndex].walkStateLiterals = walkState->literals;
+         trackStackTrace[trackStackTraceIndex].walkStatePC = walkState->pc;
+         trackStackTrace[trackStackTraceIndex].walkThreadPC = walkState->walkThread->pc;
+         trackStackTrace[trackStackTraceIndex].walkThreadLiterals = walkState->walkThread->literals;
+
+         trackStackTraceIndex = ((trackStackTraceIndex + 1) >= TRACK_STACK_SIZE) ? 0 : (trackStackTraceIndex + 1);
+
+         printf("-----------------\n");
+         printf("%s: DEBUG walkState %p: walkThread %p currentThread %p method %p literals %p pc %p sp %p unwindSP %p walkSP %p bp %p\n", __FUNCTION__,
+            walkState, walkState->walkThread, walkState->currentThread,
+            walkState->method, walkState->literals, walkState->pc, walkState->sp, walkState->unwindSP, walkState->walkSP, walkState->bp);
+         printf("%s: DEBUG walkState %p: walkThread %p walkThread->pc %p walkThread->sp %p walkThread->literals %p\n",
+            __FUNCTION__, walkState, walkState->walkThread, walkState->walkThread->pc, walkState->walkThread->sp, walkState->walkThread->literals);
+         printf("%s: DEBUG trackStackTrace %p trackStackTraceIndex %d resolveFrameType 0x%lx cpIndex %ld constantPool %p romMethodRef %p indexAndLiterals %p\n", __FUNCTION__,
+            &trackStackTrace[0], trackStackTraceIndex, resolveFrameType, cpIndex, constantPool, romMethodRef, indexAndLiterals);
+         printf("%s: DEBUG signature %p : %c %c %c %c %c\n", __FUNCTION__, debugSig, debugSig[0], debugSig[1], debugSig[2], debugSig[3], debugSig[4]);
+
+         void * buffer[255];
+         const int calls = backtrace(buffer, sizeof(buffer)/sizeof(void *));
+         backtrace_symbols_fd(buffer, calls, 1);
+      }
+
 		pendingSendSlots = getSendSlotsFromSignature(J9UTF8_DATA(signature)) + (walkStackedReceiver ? 1 : 0);
 	}
 
