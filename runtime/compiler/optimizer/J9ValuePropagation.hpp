@@ -61,6 +61,9 @@ class ValuePropagation : public OMR::ValuePropagation
    bool isKnownStringObject(TR::VPConstraint *constraint);
    TR_YesNoMaybe isStringObject(TR::VPConstraint *constraint);
 
+   virtual bool canComponentClassBeTrustedForFixedArrayClass(TR_OpaqueClassBlock *componentClass);
+   virtual bool canBeTrustedAsFixedClass(TR::SymbolReference *symRef, TR_OpaqueClassBlock *classObject);
+
    /**
     * Determine whether the type is, or might be, a value type.  Note that
     * a null reference can be cast to a value type that is not a primitive
