@@ -27,6 +27,7 @@
 
 #if defined(_WIN32_WINNT_WINBLUE) && (_WIN32_WINNT_MAXVER >= _WIN32_WINNT_WINBLUE)
 #include <VersionHelpers.h>
+#include <processthreadsapi.h>
 #endif
 #endif /* defined(WIN32) */
 
@@ -8090,6 +8091,25 @@ setSignalOptions(J9JavaVM *vm, J9PortLibrary *portLibrary)
 			sigOptions |= (J9PORT_SIG_OPTIONS_REDUCED_SIGNALS_SYNCHRONOUS | J9PORT_SIG_OPTIONS_REDUCED_SIGNALS_ASYNCHRONOUS);
 		}
 	}
+
+// _WIN32_WINNT_WIN8 0x0602
+// #if (_WIN32_WINNT >= 0x0602)
+// WINBASEAPI BOOL WINAPI SetProcessMitigationPolicy(PROCESS_MITIGATION_POLICY, PVOID, SIZE_T);
+// WINBASEAPI BOOL WINAPI GetProcessMitigationPolicy(HANDLE, PROCESS_MITIGATION_POLICY, PVOID, SIZE_T);
+// #endif /* _WIN32_WINNT >= 0x0602 */
+
+#if defined(WIN32)
+#if defined(_WIN32_WINNT_WINBLUE) && (_WIN32_WINNT_MAXVER >= _WIN32_WINNT_WINBLUE)
+	PROCESS_MITIGATION_CONTROL_FLOW_GUARD_POLICY cfgPolicy = {0};
+	if (IsWindows8OrGreater() &&
+       GetProcessMitigationPolicy(GetCurrentProcess(), ProcessControlFlowGuardPolicy, &cfgPolicy, sizeof(cfgPolicy))) {
+	   if (cfgPolicy.EnableControlFlowGuard) {
+         vm->sigFlags |= (J9_SIG_XRS_SYNC | J9_SIG_XRS_ASYNC | J9_SIG_NO_SIG_QUIT | J9_SIG_NO_SIG_USR2);
+		   sigOptions |= (J9PORT_SIG_OPTIONS_REDUCED_SIGNALS_SYNCHRONOUS | J9PORT_SIG_OPTIONS_REDUCED_SIGNALS_ASYNCHRONOUS);
+	   }
+   }
+#endif
+#endif /* defined(WIN32) */
 
 	argIndex = FIND_AND_CONSUME_VMARG(EXACT_MATCH, VMOPT_XXNOHANDLESIGABRT, NULL);
 	argIndex2 = FIND_AND_CONSUME_VMARG(EXACT_MATCH, VMOPT_XXHANDLESIGABRT, NULL);
