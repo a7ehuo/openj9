@@ -8091,6 +8091,26 @@ setSignalOptions(J9JavaVM *vm, J9PortLibrary *portLibrary)
 		}
 	}
 
+#if defined(WIN32)
+#if defined(_WIN32_WINNT_WINBLUE) && (_WIN32_WINNT_MAXVER >= _WIN32_WINNT_WINBLUE)
+	HMODULE h_kernel32 = GetModuleHandle(TEXT("kernel32.dll"));
+	Assert_VM_notNull(h_kernel32);
+
+	if (IsWindows8OrGreater()) {
+		void *getProcessMitigationPolicyFunc = (void*)GetProcAddress(h_kernel32, "GetProcessMitigationPolicy");
+		Assert_VM_notNull(getProcessMitigationPolicyFunc);
+
+		PROCESS_MITIGATION_CONTROL_FLOW_GUARD_POLICY cfgPolicy = {0};
+
+		if (((BOOL (WINAPI *)(HANDLE, PROCESS_MITIGATION_POLICY, PVOID, SIZE_T))getProcessMitigationPolicyFunc)(
+                            GetCurrentProcess(), ProcessControlFlowGuardPolicy, &cfgPolicy, sizeof(cfgPolicy)) &&
+			cfgPolicy.EnableControlFlowGuard) {
+			vm->sigFlags |= J9_SIG_WINDOWS_MITIGATION_POLICY_CFG;
+		}
+	}
+#endif
+#endif /* defined(WIN32) */
+
 	argIndex = FIND_AND_CONSUME_VMARG(EXACT_MATCH, VMOPT_XXNOHANDLESIGABRT, NULL);
 	argIndex2 = FIND_AND_CONSUME_VMARG(EXACT_MATCH, VMOPT_XXHANDLESIGABRT, NULL);
 
