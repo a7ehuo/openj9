@@ -99,6 +99,8 @@ J9::X86::CodeGenerator::initialize()
    cg->setSupportsInliningOfTypeCoersionMethods();
    cg->setSupportsNewInstanceImplOpt();
 
+   cg->setDisableNullCheckOfArrayLength();
+
    if (comp->target().cpu.supportsFeature(OMR_FEATURE_X86_SSE4_1) &&
        !comp->getOption(TR_DisableSIMDStringCaseConv) &&
        !TR::Compiler->om.canGenerateArraylets() && !TR::Compiler->om.isOffHeapAllocationEnabled())
