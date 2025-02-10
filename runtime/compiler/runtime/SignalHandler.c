@@ -1777,6 +1777,8 @@ UDATA jitAMD64Handler(J9VMThread* vmThread, U_32 sigType, void *sigInfo)
 		} else {
 			void * stackMap;
 			UDATA registerMap;
+			bool isCFGEnabled = (J9_ARE_ANY_BITS_SET(javaVM->sigFlags, J9_SIG_WINDOWS_MITIGATION_POLICY_CFG_ENABLED));
+
 			switch (sigType) {
 			case J9PORT_SIG_FLAG_SIGFPE_DIV_BY_ZERO:
 			case J9PORT_SIG_FLAG_SIGFPE_INT_DIV_BY_ZERO:
@@ -1864,10 +1866,11 @@ UDATA jitAMD64Handler(J9VMThread* vmThread, U_32 sigType, void *sigInfo)
 				break;
 #endif
 			case J9PORT_SIG_FLAG_SIGSEGV:
-				if (isDfSet(vmThread, sigInfo) == TRUE)
+				if ((isDfSet(vmThread, sigInfo) == TRUE) || isCFGEnabled)
 					break;
 			case J9PORT_SIG_FLAG_SIGBUS:
-
+				if (isCFGEnabled)
+					break;
 				vmThread->jitException = (J9Object *) ((UDATA) rip + 1);
 				*ripPtr = (U_64)(void*)(sigType == J9PORT_SIG_FLAG_SIGSEGV ? jitHandleNullPointerExceptionTrap : jitHandleInternalErrorTrap);
 				((J9VMJITRegisterState*)vmThread->entryLocalStorage->jitGlobalStorageBase)->jit_rbp = (UDATA) *rbpPtr;
