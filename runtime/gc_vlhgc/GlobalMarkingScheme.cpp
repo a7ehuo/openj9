@@ -1414,8 +1414,7 @@ private:
 			env->_markVLHGCStats._offHeapRegionsCleared += 1;
 			void *dataAddr = _extensions->indexableObjectModel.getDataAddrForContiguous((J9IndexableObject *)objectPtr);
 			if (NULL != dataAddr) {
-				_extensions->largeObjectVirtualMemory->freeSparseRegionAndUnmapFromHeapObject(_env, dataAddr, objectPtr, _extensions->indexableObjectModel.getDataSizeInBytes((J9IndexableObject *)objectPtr));
-
+				_extensions->largeObjectVirtualMemory->freeSparseRegionAndUnmapFromHeapObject(_env, dataAddr);
 				*sparseHeapAllocation = false;
 			}
 		}

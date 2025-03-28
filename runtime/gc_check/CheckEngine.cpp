@@ -468,12 +468,8 @@ GC_CheckEngine::checkJ9Object(J9JavaVM *javaVM, J9Object* objectPtr, J9MM_Iterat
 	if (extensions->isVirtualLargeObjectHeapEnabled && extensions->objectModel.isIndexable(objectPtr)) {
 		/* Check that the indexable object has the correct data address pointer */
 		void *dataAddr = extensions->indexableObjectModel.getDataAddrForIndexableObject((J9IndexableObject *)objectPtr);
-		bool isDataNonAdjacent = false;
-		bool isValidDataAddr = extensions->indexableObjectModel.isValidDataAddrForAdjacentData((J9IndexableObject *)objectPtr, dataAddr, &isDataNonAdjacent);
-		if (isDataNonAdjacent) {
-			isValidDataAddr = extensions->largeObjectVirtualMemory->getSparseDataPool()->isValidDataPtr(dataAddr, objectPtr, extensions->indexableObjectModel.getDataSizeInBytes((J9IndexableObject *)objectPtr));
-		}
-		if (!isValidDataAddr) {
+		bool isValidDataAddr = extensions->largeObjectVirtualMemory->getSparseDataPool()->isValidDataPtr(dataAddr);
+		if (!isValidDataAddr && !extensions->indexableObjectModel.isValidDataAddr((J9IndexableObject *)objectPtr, dataAddr, isValidDataAddr)) {
 			return J9MODRON_GCCHK_RC_INVALID_INDEXABLE_DATA_ADDRESS;
 		}
 	}
