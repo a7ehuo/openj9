@@ -1028,27 +1028,15 @@ TR_J9ByteCodeIlGenerator::genExceptionHandlers(TR::Block * lastBlock)
                }
             }
 
-         /*
-          * Spill the exception object into a temporary if it isn't immediately done so
-          * in the catch block.  This is necessary because the exception object will not
-          * be preserved across method calls (and for a handful of other reasons) and
-          * cannot be materialized from the metadata.  A stack temp is necessary in this
-          * case.
-          */
-         uint8_t firstOpCode = _code[_bcIndex];
-         int32_t bc = convertOpCodeToByteCodeEnum(firstOpCode);
+         TR::Node *exceptionNode = pop();
+         genTreeTop(exceptionNode);
 
-         if (bc != J9BCastore)
-            {
-            TR::SymbolReference *exceptionObjectSymRef = symRefTab()->createTemporary(_methodSymbol, TR::Address);
-            TR::Node *exceptionNode = pop();
-            genTreeTop(TR::Node::createStore(exceptionObjectSymRef, exceptionNode));
-            loadConstant(TR::aconst, (void *)0);
-            genTreeTop(TR::Node::createStore(exceptionNode->getSymbolReference(), pop()));
-            loadSymbol(TR::aload, exceptionObjectSymRef);
-            if (trace)
-               traceMsg(comp(), "catch block first BC is not an astore, inserting explicit store of exception object\n");
-            }
+         // Store null into the exception object so that we won't it live until the next throw
+         loadConstant(TR::aconst, (void *)0);
+         genTreeTop(TR::Node::createStore(exceptionNode->getSymbolReference(), pop()));
+
+         // The stack at the start of a catch block only contains the catch object
+         push(exceptionNode);
 
          TR::Node *node = _stack->top();
          node->setIsNonNull(true);
