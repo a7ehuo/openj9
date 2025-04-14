@@ -1207,6 +1207,10 @@ resolveIPicClass:
 
       cmp         byte [rdi+8], 075h                           ; is it a short branch?
       jnz         resolveIPicClassLongBranch                   ; no
+
+      cmp         byte [rdi+15], 0ebh                          ; is it a short branch?
+      jnz         resolveIPicClassLongJmpBranch                ; no
+
       movzx       rsi, byte [rdi+16]                           ; disp8 to end of IPic
                                                                ; 16 = 5 + 3 (CMP) + 2 (JNE) + 5 (CALL) + 1 (JMP)
       lea         rdx, [rdi+rsi+8]                             ; rdx = EA of disp32 of JNE
@@ -1277,6 +1281,16 @@ resolveIPicClassLongBranch:
                                                                ; 24 = 14 (offset to instr after branch) + 5 (CALL) + 5 (JMP)
       jmp         mergeResolveIPicClass
 
+resolveIPicClassLongJmpBranch:
+      movzx       rsi, byte [rdi+16]                           ; disp8 to end of IPic // TODO disp?? for JMP4
+                                                               ; 16 = 5 + 3 (CMP) + 2 (JNE) + 5 (CALL) + 1 (JMP)
+      lea         rdx, [rdi+rsi+11]                            ; rdx = EA of disp32 of JNE
+                                                               ; 8 = 4 (instr. after JMP4) -9 (EA of disp32 of JNE) + 16 (offset to disp8 EA)
+      movsxd      rsi, dword [rdx]
+      lea         rdx, [rsi+rdx+14]                            ; EA of IPic data block
+                                                               ; 14 = +4 (EA after JNE) + 5 (CALL) + 5 (JMP)
+      jmp         mergeResolveIPicClass
+
 typeCheckAndDirectDispatchIPic:
       mov         rax, qword [rdx+eq_IPicData_interfaceClass]  ; p1) interface class
       mov         rsi, qword [rsp+24]                          ; p2) receiver (saved rax)
@@ -1322,6 +1336,10 @@ populateIPicSlotClass:
 
       cmp         byte [rdx+8], 075h                           ; is it a short branch?
       jnz         populateIPicClassLongBranch                  ; no
+
+      cmp         byte [rdx+15], 0ebh                          ; is it a short branch?
+      jnz         populateIPicClassLongJmpBranch               ; no
+
       movzx       rcx, byte [rdx+16]                           ; disp8 to end of IPic
                                                                ; 16 = 5 + 3 (CMP) + 2 (JNE) + 5 (CALL) + 1 (JMP)
       lea         rsi, [rdx+rcx+8]                             ; rsi = EA of disp32 of JNE
@@ -1411,6 +1429,18 @@ populateIPicClassLongBranch:
       jmp         mergePopulateIPicClass
       ret
 
+populateIPicClassLongJmpBranch:
+      movzx       rcx, byte [rdx+16]                           ; disp8 to end of IPic
+                                                               ; 16 = 5 + 3 (CMP) + 2 (JNE) + 5 (CALL) + 1 (JMP)
+      lea         rsi, [rdx+rcx+11]                            ; rsi = EA of disp32 of JNE
+                                                               ; 8 = 4 (instr. after JMP4) -9 (EA of disp32 of JNE) + 16 (offset to disp8 EA)
+      movsxd      rdi, dword [rsi]
+      lea         rcx, [rsi+rdi+14]                            ; EA of constant pool and cpIndex
+                                                               ;   14 = 4 + 10 (CALL+JMP)
+      lea         rsi, [rsi+rdi+14+eq_IPicData_interfaceClass] ; EA of interface class in IPic data block
+                                                               ;    14 = 4 + 10 (CALL+JMP)
+      jmp         mergePopulateIPicClass
+      ret
 
 ; Look up a resolved interface method and update the call to the method
 ; that routed control to this helper.
@@ -1434,6 +1464,10 @@ populateIPicSlotCall:
                                                                ; slot) or the REX prefix of a CMP opcode.
                                                                ; -10 = -5 (CALL) -5 (CMP or JNE)
       jz          populateLastIPicSlot
+
+      cmp         byte [rdx], 0ebh                             ;
+      jnz         populateIPicSlotCallWithLongJmpBranch        ; no
+
       movzx       rdi, byte [rdx+1]                            ; JMP displacement to end of IPic
       lea         rdi, [rdi+rdx-3]                             ; rdi = EA after JNE in last slot
                                                                ;  -3 = +2 (skip JMP disp8) - 5 (call in last slot)
@@ -1519,6 +1553,12 @@ populateLastIPicSlot:
       lea         rdi, [rdx-5]                                 ; -5 = -5 (CALL)
       jmp         mergeIPicSlotCall
 
+populateIPicSlotCallWithLongJmpBranch:
+      movzx       rdi, byte [rdx+1]                            ; JMP displacement to end of IPic
+      lea         rdi, [rdi+rdx]                               ; rdi = EA after JNE in last slot
+                                                               ;  -0 = +5 (skip JMP4 disp8) - 5 (call in last slot)
+      jmp         mergeIPicSlotCall
+
 populateIPicSlotCallWithTrampoline:
       push        0                                            ; argsPtr[3] : extra arg
       mov         rsi, qword [rax+J9TR_MethodPCStartOffset]
@@ -1557,6 +1597,9 @@ dispatchInterpretedFromIPicSlot:
                                                                ; slot) or the REX prefix of a CMP opcode.
                                                                ; -10 = -5 (CALL) -5 (CMP or JNE)
       jz          interpretedLastIPicSlot
+
+      cmp         byte [rdx], 0ebh                             ;
+      jnz         dispatchInterpretedFromIPicSlotLongJmpBranch
 
       movzx       rdi, byte [rdx+1]                            ; JMP displacement to end of IPic
       lea         rdi, [rdi+rdx-3]                             ; rdi = EA after JNE in last slot
@@ -1600,6 +1643,12 @@ interpretedLastIPicSlot:
       jmp         mergeIPicInterpretedDispatch
       ret
 
+dispatchInterpretedFromIPicSlotLongJmpBranch:
+      movzx       rdi, byte [rdx+1]                            ; JMP displacement to end of IPic
+      lea         rdi, [rdi+rdx]                               ; rdi = EA after JNE in last slot
+                                                               ; -3 = +5 (skip JMP4 disp8) - 5 (call in last slot)
+      jmp         mergeIPicInterpretedDispatch
+      ret
 
 ; Look up an implemented interface method in this receivers class and
 ; dispatch it.

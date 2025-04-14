@@ -165,6 +165,9 @@ uint8_t *TR::X86PicDataSnippet::emitSnippetBody()
    TR_RuntimeHelper resolveSlotHelper, populateSlotHelper;
    int32_t sizeofPicSlot;
 
+   bool trace = comp->getOption(TR_TraceCG);
+   if (trace) traceMsg(comp, "TR::X86PicDataSnippet::%s: DEBUG startOfSnippet %p cursor %p isInterface %d\n", __FUNCTION__, startOfSnippet, cursor, isInterface());
+
    if (isInterface())
       {
       // IPIC
@@ -206,12 +209,17 @@ uint8_t *TR::X86PicDataSnippet::emitSnippetBody()
       //
       gcMap().registerStackMap(cursor, cg());
 
+      if (trace) traceMsg(comp, "TR::X86PicDataSnippet::%s: DEBUG 1. cursor %p disp32 %d (0x%x)\n", __FUNCTION__, cursor, disp32, disp32);
+
       // Restart jump (always long for predictable size).
       //
       disp32 = _doneLabel->getCodeLocation() - (cursor + 5);
       *cursor++ = 0xe9;
+      if (trace) traceMsg(comp, "TR::X86PicDataSnippet::%s: DEBUG 2. cursor %p disp32 %d (0x%x)\n", __FUNCTION__, cursor, disp32, disp32);
       *(int32_t *)cursor = disp32;
+      if (trace) traceMsg(comp, "TR::X86PicDataSnippet::%s: DEBUG 3. cursor %p disp32 %d (0x%x)\n", __FUNCTION__, cursor, disp32, disp32);
       cursor += 4;
+      if (trace) traceMsg(comp, "TR::X86PicDataSnippet::%s: DEBUG 4. cursor %p disp32 %d (0x%x)\n", __FUNCTION__, cursor, disp32, disp32);
 
       // DD/DQ constantPool address
       // DD/DQ cpIndex
@@ -224,6 +232,9 @@ uint8_t *TR::X86PicDataSnippet::emitSnippetBody()
          {
          TR_ASSERT_FATAL(0, "Can't handle resolved IPICs here yet!");
          }
+
+      if (trace)
+         traceMsg(comp, "TR::X86PicDataSnippet::%s: DEBUG 5. cursor %p disp32 %d (0x%x) (sizeof(uintptr_t) - 1) %d (0x%x)\n", __FUNCTION__, cursor, disp32, disp32, (sizeof(uintptr_t) - 1), (sizeof(uintptr_t) - 1));
 
       // Because the interface class and itable offset (immediately following)
       // are written at runtime and might be read concurrently by another
@@ -255,6 +266,8 @@ uint8_t *TR::X86PicDataSnippet::emitSnippetBody()
 
          if (unresolvedDispatch() && _hasJ2IThunkInPicData)
             cursor = encodeJ2IThunkPointer(cursor);
+
+         if (trace) traceMsg(comp, "TR::X86PicDataSnippet::%s: DEBUG 6. cursor %p disp32 %d (0x%x)\n", __FUNCTION__, cursor, disp32, disp32);
          }
       else
          {
@@ -268,6 +281,8 @@ uint8_t *TR::X86PicDataSnippet::emitSnippetBody()
       resolveSlotHelper = TR_X86resolveIPicClass;
       populateSlotHelper = TR_X86populateIPicSlotClass;
       sizeofPicSlot = x86Linkage->IPicParameters.roundedSizeOfSlot;
+
+      if (trace) traceMsg(comp, "TR::X86PicDataSnippet::%s: DEBUG 7. cursor %p sizeofPicSlot %d (0x%x)\n", __FUNCTION__, cursor, sizeofPicSlot, sizeofPicSlot);
       }
    else
       {
@@ -428,6 +443,8 @@ uint8_t *TR::X86PicDataSnippet::emitSnippetBody()
       int32_t numPicSlots = _numberOfSlots;
       uint8_t *picSlotCursor = _startOfPicInstruction->getBinaryEncoding();
 
+      if (trace) traceMsg(comp, "TR::X86PicDataSnippet::%s: DEBUG 1. picSlotCursor %p numPicSlots %d \n", __FUNCTION__, picSlotCursor, numPicSlots);
+
       TR::SymbolReference *resolveSlotHelperSymRef =
          cg()->symRefTab()->findOrCreateRuntimeHelper(resolveSlotHelper);
       TR::SymbolReference *populateSlotHelperSymRef =
@@ -438,6 +455,8 @@ uint8_t *TR::X86PicDataSnippet::emitSnippetBody()
       *picSlotCursor = 0xe8;    // CALL
       disp32 = cg()->branchDisplacementToHelperOrTrampoline(picSlotCursor, resolveSlotHelperSymRef);
       *(int32_t *)(++picSlotCursor) = disp32;
+
+      if (trace) traceMsg(comp, "TR::X86PicDataSnippet::%s: DEBUG 2. picSlotCursor %p disp32 %d (0x%x)\n", __FUNCTION__, picSlotCursor, disp32, disp32);
 
       cg()->addExternalRelocation(
          TR::ExternalRelocation::create(
@@ -451,6 +470,8 @@ uint8_t *TR::X86PicDataSnippet::emitSnippetBody()
 
          picSlotCursor = (uint8_t *)(picSlotCursor - 1 + sizeofPicSlot);
 
+         if (trace) traceMsg(comp, "TR::X86PicDataSnippet::%s: DEBUG 3. picSlotCursor %p disp32 %d (0x%x)\n", __FUNCTION__, picSlotCursor, disp32, disp32);
+
          // Patch remaining slots with call to populate helper.
          //
          while (--numPicSlots)
@@ -458,6 +479,8 @@ uint8_t *TR::X86PicDataSnippet::emitSnippetBody()
             *picSlotCursor = 0xe8;    // CALL
             disp32 = cg()->branchDisplacementToHelperOrTrampoline(picSlotCursor, populateSlotHelperSymRef);
             *(int32_t *)(++picSlotCursor) = disp32;
+
+            if (trace) traceMsg(comp, "TR::X86PicDataSnippet::%s: DEBUG 4. picSlotCursor %p disp32 %d (0x%x)\n", __FUNCTION__, picSlotCursor, disp32, disp32);
 
             cg()->addExternalRelocation(
                TR::ExternalRelocation::create(
@@ -472,6 +495,7 @@ uint8_t *TR::X86PicDataSnippet::emitSnippetBody()
             }
       }
 
+   if (trace) traceMsg(comp, "TR::X86PicDataSnippet::%s: DEBUG return cursor %p\n", __FUNCTION__, cursor);
    return cursor;
    }
 
@@ -818,6 +842,11 @@ uint8_t *TR::X86CallSnippet::emitSnippetBody()
    else if (getNode()->isJitDispatchJ9MethodCall(comp))
       isJitDispatchJ9Method = true;
 
+   bool trace = comp->getOption(TR_TraceCG);
+   if (trace)
+      traceMsg(comp, "TR::X86CallSnippet::%s: DEBUG cursor %p needToSetCodeLocation %d isJitInduceOSRCall %d isJitDispatchJ9Method %d\n", __FUNCTION__,
+         cursor, needToSetCodeLocation, isJitInduceOSRCall, isJitDispatchJ9Method);
+
    if (comp->target().is64Bit())
       {
       // Backspill register linkage arguments to the stack.
@@ -838,6 +867,7 @@ uint8_t *TR::X86CallSnippet::emitSnippetBody()
    bool forceUnresolvedDispatch = !fej9->isResolvedDirectDispatchGuaranteed(comp);
    if (methodSymRef->isUnresolved() || forceUnresolvedDispatch)
       {
+      if (trace) traceMsg(comp, "TR::X86CallSnippet::%s: DEBUG cursor %p Unresolved\n", __FUNCTION__, cursor);
       // Unresolved interpreted dispatch snippet shape:
       //
       // 64-bit
@@ -959,6 +989,7 @@ uint8_t *TR::X86CallSnippet::emitSnippetBody()
       }
    else
       {
+      if (trace) traceMsg(comp, "TR::X86CallSnippet::%s: DEBUG cursor %p Resolved\n", __FUNCTION__, cursor);
       // Resolved method dispatch.
       //
       // 64-bit
@@ -988,6 +1019,7 @@ uint8_t *TR::X86CallSnippet::emitSnippetBody()
       //
       if (!isJitInduceOSRCall && !isJitDispatchJ9Method)
          {
+         if (trace) traceMsg(comp, "TR::X86CallSnippet::%s: DEBUG cursor %p !isJitInduceOSRCall && !isJitDispatchJ9Method\n", __FUNCTION__, cursor);
 #if defined(J9VM_OPT_JITSERVER)
          intptr_t ramMethod = comp->isOutOfProcessCompilation() && !methodSymbol->isInterpreted() ?
                                     (intptr_t)methodSymRef->getSymbol()->castToResolvedMethodSymbol()->getResolvedMethod()->getPersistentIdentifier() :
@@ -1034,6 +1066,8 @@ uint8_t *TR::X86CallSnippet::emitSnippetBody()
          cursor += sizeof(intptr_t);
          }
 
+      if (trace) traceMsg(comp, "TR::X86CallSnippet::%s: DEBUG cursor %p\n", __FUNCTION__, cursor);
+
       // JMP interpreterStaticAndSpecialGlue
       //
       *cursor = 0xe9;
@@ -1063,6 +1097,8 @@ uint8_t *TR::X86CallSnippet::emitSnippetBody()
       int32_t disp32 = cg()->branchDisplacementToHelperOrTrampoline(cursor, dispatchSymRef);
       *(int32_t *)(++cursor) = disp32;
 
+      if (trace) traceMsg(comp, "TR::X86CallSnippet::%s: DEBUG cursor %p disp32 %d (0x%x)\n", __FUNCTION__, cursor, disp32, disp32);
+
       cg()->addExternalRelocation(
          TR::ExternalRelocation::create(
             cursor,
@@ -1075,6 +1111,7 @@ uint8_t *TR::X86CallSnippet::emitSnippetBody()
       cursor += 4;
       }
 
+   if (trace) traceMsg(comp, "TR::X86CallSnippet::%s: DEBUG return cursor %p\n", __FUNCTION__, cursor);
    return cursor;
    }
 
@@ -1115,5 +1152,7 @@ uint32_t TR::X86CallSnippet::getLength(int32_t estimatedSnippetStart)
          length += (5+5);
       }
 
+   bool trace = comp->getOption(TR_TraceCG);
+   if (trace) traceMsg(comp, "TR::X86CallSnippet%s: DEBUG return length %d (0x%x)\n", __FUNCTION__, length, length);
    return length;
    }

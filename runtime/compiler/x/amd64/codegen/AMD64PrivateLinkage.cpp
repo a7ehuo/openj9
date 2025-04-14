@@ -1356,6 +1356,13 @@ void J9::X86::AMD64::PrivateLinkage::buildIPIC(TR::X86CallSite &site, TR::LabelS
    numIPICs = IPicParameters.defaultNumberOfSlots;
 
    cg()->reserveNTrampolines(numIPICs);
+
+   if (comp()->getOption(TR_TraceCG))
+      {
+      traceMsg(comp(), "%s: X86PicDataSnippet %p numIPicSlots %d startOfPicInstruction %p lookupDispatchSnippetLabel %s doneLabel %s slotPatchInstruction %p site.getThunkAddress %p\n",
+          __FUNCTION__, snippet, numIPicSlots, startOfPicInstruction, lookupDispatchSnippetLabel->getName(comp()->getDebug()), doneLabel->getName(comp()->getDebug()),
+          slotPatchInstruction, site.getThunkAddress());
+      }
    }
 
 void J9::X86::AMD64::PrivateLinkage::buildVirtualOrComputedCall(TR::X86CallSite &site, TR::LabelSymbol *entryLabel, TR::LabelSymbol *doneLabel, uint8_t *thunk)
