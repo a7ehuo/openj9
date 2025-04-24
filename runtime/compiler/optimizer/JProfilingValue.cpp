@@ -21,6 +21,7 @@
  *******************************************************************************/
 #include "JProfilingValue.hpp"
 
+#include "env/VerboseLog.hpp"
 #include "il/Block.hpp"
 #include "infra/Cfg.hpp"
 #include "infra/TRCfgEdge.hpp"
@@ -333,6 +334,23 @@ TR_JProfilingValue::lowerCalls()
 
       if (!stopProfiling && (comp()->getSymRefTab()->getNumInternalPointers() >= ipMax))
          stopProfiling = true;
+
+      if (comp()->getOption(TR_DisableCheckOnNumInternalPointersInJProfilingValue))
+         {
+         stopProfiling = false;
+
+         if (TR::Options::isAnyVerboseOptionSet())
+            {
+            TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "DEBUG TR_JProfilingValue::lowerCalls TR_DisableCheckOnNumInternalPointersInJProfilingValue 1 stopProfiling 0 %s\n", comp()->signature());
+            }
+         }
+      else
+         {
+         if (TR::Options::isAnyVerboseOptionSet())
+            {
+            TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "DEBUG TR_JProfilingValue::lowerCalls stopProfiling %d %s\n", stopProfiling, comp()->signature());
+            }
+         }
 
       if (node->isProfilingCode() &&
          node->getOpCodeValue() == TR::treetop &&
