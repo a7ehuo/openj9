@@ -395,6 +395,7 @@ dremloop:
 ;
         align 16
 SSEfloatRemainderIA32Thunk:
+        vzeroupper
         sub         _rsp, 8
         movq        qword [_rsp], xmm1
         cvtss2sd    xmm1, dword [_rsp +16]     ; dividend
@@ -402,6 +403,7 @@ SSEfloatRemainderIA32Thunk:
         call        doSSEdoubleRemainder
         cvtsd2ss    xmm0, xmm0
         movq        xmm1, qword [_rsp]
+        vzeroupper
         add         _rsp, 8
         ret         8
 
@@ -412,28 +414,33 @@ SSEfloatRemainderIA32Thunk:
 ;
         align 16
 SSEdoubleRemainderIA32Thunk:
+        vzeroupper
         sub         _rsp, 8
         movq        qword [_rsp], xmm1
         movq        xmm1, qword [_rsp +20]     ; dividend
         movq        xmm0, qword [_rsp +12]     ; divisor
         call        doSSEdoubleRemainder
         movq        xmm1, qword [_rsp]
+        vzeroupper
         add         _rsp, 8
         ret         16
 
 
         align 16
 SSEfloatRemainder:
+        vzeroupper
         cvtss2sd    xmm0, xmm0
         cvtss2sd    xmm1, xmm1
         call        doSSEdoubleRemainder
         cvtsd2ss    xmm0, xmm0
+        vzeroupper
         ret
 
         align 16
 SSEdoubleRemainder:
 
 doSSEdoubleRemainder:
+        vzeroupper
         ucomisd xmm0, xmm1                    ; unordered compare, is either operand NaN
         jp short RETURN_NAN                   ; either dividend or divisor was a NaN
 
@@ -452,7 +459,7 @@ doSSEdoubleRemainder:
         ; note, the sign of the divisor has no affect on the final result
         andpd xmm1, oword  [_rel ABSMASK]                            ; xmm1 = {|a|, |b|}
         movapd xmm2, [_rel NULL_INF_MASK]                            ; xmm2 = {+inf, 0.0}
-        
+
         cmppd xmm2, xmm1, 4                             ; compare xmm2 != xmm1, leave mask in xmm1
 
         ; xmm1 = {(|a| != +inf ? |a| : 0, |b| != 0.0 ? |b| : 0}
@@ -479,10 +486,12 @@ RETURN_NAN:
 RETURN_DIVIDEND:                                 ; dividend already in xmm0
         nop
 
+        vzeroupper
         ret
 
         align 16
 _dblRemain:
+        vzeroupper
         ; Prolog Start
         push _rax
         push _rbx
@@ -583,6 +592,7 @@ L258:
         ; Epilog Start
         movq xmm2, QWORD  [_rsp+16]               ; restore xmm2
         movq xmm4, QWORD  [_rsp+24]               ; restore xmm4
+        vzeroupper
         add _rsp, 48
         pop _rcx
         pop _rbx
@@ -596,6 +606,7 @@ L280:
         ; Epilog Start
         movq xmm2, QWORD  [_rsp+16]               ; restore xmm2
         movq xmm4, QWORD  [_rsp+24]               ; restore xmm4
+        vzeroupper
         add _rsp, 48
         pop _rcx
         pop _rbx
@@ -617,6 +628,7 @@ SMALL_NUMS:
         ; Epilog Start
         movq xmm2, QWORD  [_rsp+16]                      ; restore xmm2
         movq xmm4, QWORD  [_rsp+24]                      ; restore xmm4
+        vzeroupper
         add _rsp, 48
         pop _rcx
         pop _rbx
@@ -636,6 +648,7 @@ LARGE_NUMS:
 
         ; Epilog Start
         movq     xmm2, QWORD  [_rsp+16]                  ; restore xmm2
+        vzeroupper
         add _rsp, 48
         pop _rcx
         pop _rbx
@@ -896,22 +909,22 @@ jitReleaseVMAccess:
         ; TODO: We don't need to save them all on Windows
         sub     rsp, 128 ; Reserve space for XMMs
         ; Do the writes in-order so we don't defeat the cache
-        movq    qword  [rsp+0],   xmm0
-        movq    qword  [rsp+8],   xmm1
-        movq    qword  [rsp+16],  xmm2
-        movq    qword  [rsp+24],  xmm3
-        movq    qword  [rsp+32],  xmm4
-        movq    qword  [rsp+40],  xmm5
-        movq    qword  [rsp+48],  xmm6
-        movq    qword  [rsp+56],  xmm7
-        movq    qword  [rsp+64],  xmm8
-        movq    qword  [rsp+72],  xmm9
-        movq    qword  [rsp+80],  xmm10
-        movq    qword  [rsp+88],  xmm11
-        movq    qword  [rsp+96],  xmm12
-        movq    qword  [rsp+104], xmm13
-        movq    qword  [rsp+112], xmm14
-        movq    qword  [rsp+120], xmm15
+        vmovq    qword  [rsp+0],   xmm0
+        vmovq    qword  [rsp+8],   xmm1
+        vmovq    qword  [rsp+16],  xmm2
+        vmovq    qword  [rsp+24],  xmm3
+        vmovq    qword  [rsp+32],  xmm4
+        vmovq    qword  [rsp+40],  xmm5
+        vmovq    qword  [rsp+48],  xmm6
+        vmovq    qword  [rsp+56],  xmm7
+        vmovq    qword  [rsp+64],  xmm8
+        vmovq    qword  [rsp+72],  xmm9
+        vmovq    qword  [rsp+80],  xmm10
+        vmovq    qword  [rsp+88],  xmm11
+        vmovq    qword  [rsp+96],  xmm12
+        vmovq    qword  [rsp+104], xmm13
+        vmovq    qword  [rsp+112], xmm14
+        vmovq    qword  [rsp+120], xmm15
 
         ; Call vmThread->internalFunctionTable->releaseVMAccess(rbp)
 %ifdef WINDOWS
@@ -929,22 +942,22 @@ jitReleaseVMAccess:
 
         ; Restore registers
         ; XMMs
-        movq    xmm0,  qword  [rsp+0]
-        movq    xmm1,  qword  [rsp+8]
-        movq    xmm2,  qword  [rsp+16]
-        movq    xmm3,  qword  [rsp+24]
-        movq    xmm4,  qword  [rsp+32]
-        movq    xmm5,  qword  [rsp+40]
-        movq    xmm6,  qword  [rsp+48]
-        movq    xmm7,  qword  [rsp+56]
-        movq    xmm8,  qword  [rsp+64]
-        movq    xmm9,  qword  [rsp+72]
-        movq    xmm10, qword  [rsp+80]
-        movq    xmm11, qword  [rsp+88]
-        movq    xmm12, qword  [rsp+96]
-        movq    xmm13, qword  [rsp+104]
-        movq    xmm14, qword  [rsp+112]
-        movq    xmm15, qword  [rsp+120]
+        vmovq    xmm0,  qword  [rsp+0]
+        vmovq    xmm1,  qword  [rsp+8]
+        vmovq    xmm2,  qword  [rsp+16]
+        vmovq    xmm3,  qword  [rsp+24]
+        vmovq    xmm4,  qword  [rsp+32]
+        vmovq    xmm5,  qword  [rsp+40]
+        vmovq    xmm6,  qword  [rsp+48]
+        vmovq    xmm7,  qword  [rsp+56]
+        vmovq    xmm8,  qword  [rsp+64]
+        vmovq    xmm9,  qword  [rsp+72]
+        vmovq    xmm10, qword  [rsp+80]
+        vmovq    xmm11, qword  [rsp+88]
+        vmovq    xmm12, qword  [rsp+96]
+        vmovq    xmm13, qword  [rsp+104]
+        vmovq    xmm14, qword  [rsp+112]
+        vmovq    xmm15, qword  [rsp+120]
         add     rsp, 128
         ; GPRs
         pop     rax

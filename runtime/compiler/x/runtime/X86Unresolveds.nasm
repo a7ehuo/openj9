@@ -103,6 +103,7 @@
 ;
       align 16
 interpreterUnresolvedStaticGlue:
+      vzeroupper
       pop         edi                                          ; RA in snippet (see [1] above)
 
       push        dword [edi+14]                               ; p3) cpIndex
@@ -143,6 +144,7 @@ interpreterUnresolvedStaticGlue:
 
       align 16
 interpreterUnresolvedSpecialGlue:
+      vzeroupper
       pop         edi                                          ; RA in snippet (see [1] above)
 
       push        dword [edi+14]                               ; p3) cpIndex
@@ -189,6 +191,7 @@ interpreterUnresolvedSpecialGlue:
 ;
       align 16
 interpreterStaticAndSpecialGlue:
+      vzeroupper
       test        byte [edi+J9TR_MethodPCStartOffset], J9TR_MethodNotCompiledBit
       jnz         j2iTransition
       mov         edi, dword [edi+J9TR_MethodPCStartOffset]
@@ -381,6 +384,7 @@ restoreRegs:
       ; local: doneFPRpreservation, preserveX87loop
 
       pushfd                                                   ; save flags , addr=esp+28
+      vzeroupper
       push        ebp                                          ; save register, addr=esp+24
       push        esi                                          ; save register, addr=esp+20
       push        edi                                          ; save register, addr=esp+16
@@ -420,6 +424,7 @@ restoreRegs:
       movq        qword [esp+40], xmm5
       movq        qword [esp+48], xmm6
       movq        qword [esp+56], xmm7
+      vzeroupper
       jmp         short .doneFPRpreservation
 
 .preserveX87loop:
@@ -444,6 +449,7 @@ restoreRegs:
 %macro FPRDataResolveEpilogue 3                                ; args: cpScratchReg, scratchReg, scratchReg2
       ; local restoreX87stack, restoreX87loop, doneFPRrestoration
 
+      vzeroupper
       movzx       %1, byte [esp+123]                           ; &cpScratchReg ; load number of FPRs live across this resolution
       and         %1, 01fh                                     ; isolate number of live FPRs across this resolution
       test        %1, %1
@@ -459,6 +465,7 @@ restoreRegs:
       movq        xmm5, qword [esp +40]
       movq        xmm6, qword [esp +48]
       movq        xmm7, qword [esp +56]
+      vzeroupper
       jmp         short .doneFPRrestoration
 
 .restoreX87stack:
@@ -1013,6 +1020,7 @@ interpreterStaticAndSpecialGlue:
 
 %macro DataResolvePrologue 0
       pushfq                                                   ; rsp+256 = flags
+      vzeroupper
       push        r15                                          ; rsp+248
       push        r14                                          ; rsp+240
       push        r13                                          ; rsp+232
@@ -1046,6 +1054,7 @@ interpreterStaticAndSpecialGlue:
       movsd       qword [rsp+104], xmm13
       movsd       qword [rsp+112], xmm14
       movsd       qword [rsp+120], xmm15
+      vzeroupper
 %endmacro
 
 
@@ -1061,6 +1070,7 @@ interpreterStaticAndSpecialGlue:
 
 
 %macro DataResolveEpilogue 0
+      vzeroupper
       movsd       xmm0, qword [rsp+0]
       movsd       xmm1, qword [rsp+8]
       movsd       xmm2, qword [rsp+16]
@@ -1077,6 +1087,7 @@ interpreterStaticAndSpecialGlue:
       movsd       xmm13, qword [rsp+104]
       movsd       xmm14, qword [rsp+112]
       movsd       xmm15, qword [rsp+120]
+      vzeroupper
       add         rsp, 128
       pop         rax
       pop         rbx
