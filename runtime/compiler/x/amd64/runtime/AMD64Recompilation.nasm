@@ -17,7 +17,7 @@
 ; [2] https://openjdk.org/legal/assembly-exception.html
 ;
 ; SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0 OR GPL-2.0-only WITH OpenJDK-assembly-exception-1.0
-        
+
 %ifdef TR_HOST_64BIT
 
 %include "jilconsts.inc"
@@ -66,14 +66,14 @@ eq_HasFailedRecompilation            equ  80h ; Flag bit, defined in codert.dev/
                 ; XMMs
                 sub     rsp, 64 ; Reserve space for XMMs
                 ; Do the writes in-order so we don't defeat the cache
-                movsd   qword  [rsp+0],  xmm8
-                movsd   qword  [rsp+8],  xmm9
-                movsd   qword  [rsp+16], xmm10
-                movsd   qword  [rsp+24], xmm11
-                movsd   qword  [rsp+32], xmm12
-                movsd   qword  [rsp+40], xmm13
-                movsd   qword  [rsp+48], xmm14
-                movsd   qword  [rsp+56], xmm15
+                vmovsd   qword  [rsp+0],  xmm8
+                vmovsd   qword  [rsp+8],  xmm9
+                vmovsd   qword  [rsp+16], xmm10
+                vmovsd   qword  [rsp+24], xmm11
+                vmovsd   qword  [rsp+32], xmm12
+                vmovsd   qword  [rsp+40], xmm13
+                vmovsd   qword  [rsp+48], xmm14
+                vmovsd   qword  [rsp+56], xmm15
                 ; GPRs
                 push    rax     ; arg0
                 push    rsi     ; arg1
@@ -89,14 +89,14 @@ exitRecompileMethod: ; PROC
                 pop     rax     ; arg0
                 ; XMMs
                 ; Do the reads in-order so we don't defeat the cache
-                movsd   xmm8,  qword  [rsp+0]
-                movsd   xmm9,  qword  [rsp+8]
-                movsd   xmm10, qword  [rsp+16]
-                movsd   xmm11, qword  [rsp+24]
-                movsd   xmm12, qword  [rsp+32]
-                movsd   xmm13, qword  [rsp+40]
-                movsd   xmm14, qword  [rsp+48]
-                movsd   xmm15, qword  [rsp+56]
+                vmovsd   xmm8,  qword  [rsp+0]
+                vmovsd   xmm9,  qword  [rsp+8]
+                vmovsd   xmm10, qword  [rsp+16]
+                vmovsd   xmm11, qword  [rsp+24]
+                vmovsd   xmm12, qword  [rsp+32]
+                vmovsd   xmm13, qword  [rsp+40]
+                vmovsd   xmm14, qword  [rsp+48]
+                vmovsd   xmm15, qword  [rsp+56]
                 add     rsp,   64
                 ; Branch to desired target
                 jmp     rdi
@@ -293,7 +293,7 @@ patchCallSite:
                 call    jitCallCFunction
                 add     rsp, 48
                 pop     rsi
-                
+
 finishedPatchCallSite:
                 ; Assume:
                 ;    rdi == new jit entry
@@ -324,7 +324,7 @@ countingPatchToRecompile:
                 pop     rdx
                 xchg    qword [rsp], rdi    ; restore edi
                 ret                            ; jump to recompilationSnippet while minimizing damage to return address branch prediction
-                
+
 ;
 ;
 ret

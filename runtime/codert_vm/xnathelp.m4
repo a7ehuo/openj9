@@ -615,11 +615,11 @@ BEGIN_RETURN_POINT(jitExitInterpreter1)
 END_RETURN_POINT(jitExitInterpreter1)
 
 BEGIN_RETURN_POINT(jitExitInterpreterF)
-	movss xmm0,dword ptr J9TR_VMThread_returnValue[_rbp]
+	vmovss xmm0,dword ptr J9TR_VMThread_returnValue[_rbp]
 END_RETURN_POINT(jitExitInterpreterF)
 
 BEGIN_RETURN_POINT(jitExitInterpreterD)
-	movq xmm0,qword ptr J9TR_VMThread_returnValue[_rbp]
+	vmovq xmm0,qword ptr J9TR_VMThread_returnValue[_rbp]
 END_RETURN_POINT(jitExitInterpreterD)
 
 START_PROC(returnFromJITConstructor0)
@@ -644,7 +644,7 @@ START_PROC(returnFromJIT1)
 END_PROC(returnFromJIT1)
 
 START_PROC(returnFromJITF)
-	movd dword ptr J9TR_VMThread_floatTemp1[_rbp],xmm0
+	vmovd dword ptr J9TR_VMThread_floatTemp1[_rbp],xmm0
 	mov uword ptr J9TR_VMThread_returnValue[_rbp],J9TR_bcloop_return_from_jit
 	mov uword ptr J9TR_VMThread_returnValue2[_rbp],1
 	SWITCH_TO_C_STACK
@@ -652,7 +652,7 @@ START_PROC(returnFromJITF)
 END_PROC(returnFromJITF)
 
 START_PROC(returnFromJITD)
-	movq qword ptr J9TR_VMThread_floatTemp1[_rbp],xmm0
+	vmovq qword ptr J9TR_VMThread_floatTemp1[_rbp],xmm0
 	mov uword ptr J9TR_VMThread_returnValue[_rbp],J9TR_bcloop_return_from_jit
 	mov uword ptr J9TR_VMThread_returnValue2[_rbp],2
 	SWITCH_TO_C_STACK
@@ -855,7 +855,7 @@ START_PROC(jitDecompileOnReturn1)
 END_PROC(jitDecompileOnReturn1)
 
 START_PROC(jitDecompileOnReturnF)
-	movd dword ptr J9TR_VMThread_returnValue[_rbp],xmm0
+	vmovd dword ptr J9TR_VMThread_returnValue[_rbp],xmm0
 	mov uword ptr J9TR_VMThread_tempSlot[_rbp],1
 	SWITCH_TO_C_STACK
 	SAVE_PRESERVED_REGS
@@ -864,7 +864,7 @@ START_PROC(jitDecompileOnReturnF)
 END_PROC(jitDecompileOnReturnF)
 
 START_PROC(jitDecompileOnReturnD)
-	movq qword ptr J9TR_VMThread_returnValue[_rbp],xmm0
+	vmovq qword ptr J9TR_VMThread_returnValue[_rbp],xmm0
 	mov uword ptr J9TR_VMThread_tempSlot[_rbp],2
 	SWITCH_TO_C_STACK
 	SAVE_PRESERVED_REGS
