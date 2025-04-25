@@ -41,31 +41,31 @@ define({C_PROLOGUE},{
 	push r14
 	push r15
 	sub rsp,CINTERP_STACK_SIZE
-	movdqa (J9TR_cframe_preservedFPRs+(16*0))[RSP],xmm6
-	movdqa (J9TR_cframe_preservedFPRs+(16*1))[RSP],xmm7
-	movdqa (J9TR_cframe_preservedFPRs+(16*2))[RSP],xmm8
-	movdqa (J9TR_cframe_preservedFPRs+(16*3))[RSP],xmm9
-	movdqa (J9TR_cframe_preservedFPRs+(16*4))[RSP],xmm10
-	movdqa (J9TR_cframe_preservedFPRs+(16*5))[RSP],xmm11
-	movdqa (J9TR_cframe_preservedFPRs+(16*6))[RSP],xmm12
-	movdqa (J9TR_cframe_preservedFPRs+(16*7))[RSP],xmm13
-	movdqa (J9TR_cframe_preservedFPRs+(16*8))[RSP],xmm14
-	movdqa (J9TR_cframe_preservedFPRs+(16*9))[RSP],xmm15
+	vmovdqa (J9TR_cframe_preservedFPRs+(16*0))[RSP],xmm6
+	vmovdqa (J9TR_cframe_preservedFPRs+(16*1))[RSP],xmm7
+	vmovdqa (J9TR_cframe_preservedFPRs+(16*2))[RSP],xmm8
+	vmovdqa (J9TR_cframe_preservedFPRs+(16*3))[RSP],xmm9
+	vmovdqa (J9TR_cframe_preservedFPRs+(16*4))[RSP],xmm10
+	vmovdqa (J9TR_cframe_preservedFPRs+(16*5))[RSP],xmm11
+	vmovdqa (J9TR_cframe_preservedFPRs+(16*6))[RSP],xmm12
+	vmovdqa (J9TR_cframe_preservedFPRs+(16*7))[RSP],xmm13
+	vmovdqa (J9TR_cframe_preservedFPRs+(16*8))[RSP],xmm14
+	vmovdqa (J9TR_cframe_preservedFPRs+(16*9))[RSP],xmm15
 	mov qword ptr J9TR_machineSP_machineBP[rsp],rbp
 	mov rbp,rcx
 })
 
 define({C_EPILOGUE},{
-	movdqa xmm6,(J9TR_cframe_preservedFPRs+(16*0))[RSP]
-	movdqa xmm7,(J9TR_cframe_preservedFPRs+(16*1))[RSP]
-	movdqa xmm8,(J9TR_cframe_preservedFPRs+(16*2))[RSP]
-	movdqa xmm9,(J9TR_cframe_preservedFPRs+(16*3))[RSP]
-	movdqa xmm10,(J9TR_cframe_preservedFPRs+(16*4))[RSP]
-	movdqa xmm11,(J9TR_cframe_preservedFPRs+(16*5))[RSP]
-	movdqa xmm12,(J9TR_cframe_preservedFPRs+(16*6))[RSP]
-	movdqa xmm13,(J9TR_cframe_preservedFPRs+(16*7))[RSP]
-	movdqa xmm14,(J9TR_cframe_preservedFPRs+(16*8))[RSP]
-	movdqa xmm15,(J9TR_cframe_preservedFPRs+(16*9))[RSP]
+	vmovdqa xmm6,(J9TR_cframe_preservedFPRs+(16*0))[RSP]
+	vmovdqa xmm7,(J9TR_cframe_preservedFPRs+(16*1))[RSP]
+	vmovdqa xmm8,(J9TR_cframe_preservedFPRs+(16*2))[RSP]
+	vmovdqa xmm9,(J9TR_cframe_preservedFPRs+(16*3))[RSP]
+	vmovdqa xmm10,(J9TR_cframe_preservedFPRs+(16*4))[RSP]
+	vmovdqa xmm11,(J9TR_cframe_preservedFPRs+(16*5))[RSP]
+	vmovdqa xmm12,(J9TR_cframe_preservedFPRs+(16*6))[RSP]
+	vmovdqa xmm13,(J9TR_cframe_preservedFPRs+(16*7))[RSP]
+	vmovdqa xmm14,(J9TR_cframe_preservedFPRs+(16*8))[RSP]
+	vmovdqa xmm15,(J9TR_cframe_preservedFPRs+(16*9))[RSP]
 	add rsp,CINTERP_STACK_SIZE
 	pop r15
 	pop r14

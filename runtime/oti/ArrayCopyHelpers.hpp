@@ -102,8 +102,8 @@ private:
 				_mm_storeu_si128(d++, _mm_loadu_si128(s++));
 #else /* !defined(USE_X86_INTRINSICS) */
 				__asm__ __volatile__(
-						"movdqu %1, %%xmm0\n"
-						"movdqu %%xmm0, %0\n"
+						"vmovdqu %1, %%xmm0\n"
+						"vmovdqu %%xmm0, %0\n"
 						: "=m" (*d++) : "m" (*s++) : "%xmm0");
 #endif /* defined(USE_X86_INTRINSICS) */
 				halfCount--;
@@ -115,8 +115,8 @@ private:
 				_mm_stream_si128(d++, _mm_load_si128(s++));
 #else /* !defined(USE_X86_INTRINSICS) */
 				__asm__ __volatile__(
-						"movdqa %1, %%xmm0\n"
-						"movntdq %%xmm0, %0\n"
+						"vmovdqa %1, %%xmm0\n"
+						"vmovntdq %%xmm0, %0\n"
 						: "=m" (*d++) : "m" (*s++) : "%xmm0");
 #endif /* defined(USE_X86_INTRINSICS) */
 				halfCount--;
@@ -129,8 +129,8 @@ private:
 			_mm_storel_epi64(d, _mm_loadl_epi64(s));
 #else /* !defined(USE_X86_INTRINSICS) || GCC == 4.1 */
 			__asm__ __volatile__(
-				"movq %1, %%xmm0\n"
-				"movq %%xmm0, %0\n"
+				"vmovq %1, %%xmm0\n"
+				"vmovq %%xmm0, %0\n"
 				: "=m" (*d) : "m" (*s) : "%xmm0");
 #endif /* (defined(USE_X86_INTRINSICS) && GCC != 4.1 */
 		}
@@ -174,7 +174,7 @@ private:
 		/* Use memmove instead of memcpy because memcpy does not work on Ubuntu 10.04 */
 		memmove((void *)dest, (void *)source, count);
 	}
-	
+
 	static VMINLINE void
 	inlineAlignedMemcpy(void *dest, void *source, UDATA bytes, UDATA alignment)
 	{

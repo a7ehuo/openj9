@@ -28,6 +28,7 @@
 	align 16
 
 J9SSE2memclear PROC NEAR
+   vzeroupper
 	mov EAX, dword ptr 4[ESP]
 	mov ECX, dword ptr 8[ESP]
 	shr ecx, 7	; 128 bytes per
@@ -47,9 +48,10 @@ loop1:
 
 	add EAX, 128
 	dec ecx
-	jnz loop1 
+	jnz loop1
 
 	sfence
+   vzeroupper
 	ret
 
 J9SSE2memclear ENDP

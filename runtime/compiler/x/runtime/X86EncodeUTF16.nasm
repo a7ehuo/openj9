@@ -75,6 +75,7 @@ encodeUTF16Big_shufmask:
 
                 align 16
 %1:                                      ; helperName
+                vzeroupper
                 ; Remember original count -
                 ; will subtract at return to compute number converted
                 mov _rax, _rdx
@@ -174,6 +175,7 @@ Lresidue_loop_%1:                        ; helperName
                 jg Lresidue_loop_%1     ; helperName
 
 Lend_%1: ;&helperName:
+                vzeroupper
                 sub _rax, _rdx
                 ret
 
