@@ -379,6 +379,17 @@ TR_JProfilingValue::lowerCalls()
             addProfilingTrees(comp(), cursor, value, table, needNullTest, true, trace());
             // Remove the original trees and continue from the tree after the profiling
             }
+         else // Need to anchor the value before the helper call node is removed
+            {
+            TR::Node *child = node->getFirstChild(); // helper call node
+            TR::Node *value = child->getFirstChild();
+
+            cursor->insertAfter(TR::TreeTop::create(comp(), TR::Node::create(TR::treetop, 1, value)));
+
+            dumpOptDetails(comp(), "%s Anchoring n%dn before cursor n%dn is removed\n", optDetailString(), value->getGlobalIndex(), cursor->getNode()->getGlobalIndex());
+            if (trace())
+               traceMsg(comp(), "DEBUG TR_JProfilingValue::lowerCalls anchoring n%dn before cursor n%dn is removed\n", value->getGlobalIndex(), cursor->getNode()->getGlobalIndex());
+            }
 
          TR::TransformUtil::removeTree(comp(), cursor);
          if (trace())
