@@ -330,9 +330,10 @@ TR_JProfilingValue::lowerCalls()
          static const int32_t ipLimit = atoi(ipl);
          ipMax = ipLimit;
          }
-
+#if 0
       if (!stopProfiling && (comp()->getSymRefTab()->getNumInternalPointers() >= ipMax))
          stopProfiling = true;
+#endif
 
       if (node->isProfilingCode() &&
          node->getOpCodeValue() == TR::treetop &&
