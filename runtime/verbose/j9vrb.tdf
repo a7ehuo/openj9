@@ -47,3 +47,13 @@ TraceAssert=Assert_VRB_Equals NoEnv Overhead=1 Level=2 Assert="(P1 == P2)"
 TraceAssert=Assert_VRB_NotEquals NoEnv Overhead=1 Level=2 Assert="(P1 != P2)"
 
 TraceEntry=Trc_VRB_WalkStackFrames_Entry Overhead=1 Level=1 Template="WalkStackFrames - walkThread=%p flags=%p sp=%p a0=%p pc=%p literals=%p els=%p j2i=%p"
+
+TraceEvent=Trc_Jswalk_jitGetOwnedObjectMonitors_1 Overhead=1 Level=1 Template="1. walkState %p, walkState->jitInfo %p, walkState->pc %p"
+TraceEvent=Trc_Jswalk_jitGetOwnedObjectMonitors_2 Overhead=1 Level=1 Template="2. walkState %p, liveMonitorMap %p, gcStackAtlas %p, numberOfMapBits %d"
+TraceEvent=Trc_Jswalk_jitGetOwnedObjectMonitors_3 Overhead=1 Level=1 Template="3. walkState %p, inlineMonitorMask %p, numberOfMapBits %d"
+TraceEvent=Trc_Jswalk_jitGetOwnedObjectMonitors_4 Overhead=1 Level=1 Template="4. walkState %p, numberOfMapBits %d"
+
+TraceEvent=Trc_Jswalk_walkLiveMonitorSlotsForYield_1 Overhead=1 Level=1 Template="1. walkState %p, gcStackAtlas %p, liveMonitorMap %p, numberOfMapBits %d, targetSyncObject %p, monitorCount %d"
+TraceEvent=Trc_Jswalk_walkLiveMonitorSlotsForYield_2 Overhead=1 Level=1 Template="2. walkState %p, i %d, objAddress %p, obj %p, monitorCount %d"
+TraceEvent=Trc_Jswalk_walkLiveMonitorSlotsForYield_3 Overhead=1 Level=1 Template="3. walkState %p, i %d, mon %p, monitorCount %d"
+TraceEvent=Trc_Jswalk_walkLiveMonitorSlotsForYield_4 Overhead=1 Level=1 Template="4. walkState %p, monitorCount %d"

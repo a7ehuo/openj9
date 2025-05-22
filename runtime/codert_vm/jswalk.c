@@ -175,7 +175,7 @@ UDATA  jitWalkStackFrames(J9StackWalkState *walkState)
 		walkState->stackMap = NULL;
 		walkState->inlineMap = NULL;
 		walkState->bp = walkState->unwindSP + getJitTotalFrameSize(walkState->jitInfo);
-		
+
 #ifdef J9VM_INTERP_LINEAR_STACKWALK_TRACING
 		lswRecord(walkState, LSW_TYPE_JIT_BP, walkState->bp);
 #endif
@@ -205,8 +205,8 @@ UDATA  jitWalkStackFrames(J9StackWalkState *walkState)
 						walkState->bytecodePCOffset = (IDATA) getCurrentByteCodeIndexAndIsSameReceiver(walkState->jitInfo, walkState->inlineMap, walkState->inlinedCallSite, NULL);
 #ifdef J9VM_INTERP_STACKWALK_TRACING
 						jitPrintFrameType(walkState, "JIT inline");
-#endif						
-#ifdef J9VM_INTERP_LINEAR_STACKWALK_TRACING						
+#endif
+#ifdef J9VM_INTERP_LINEAR_STACKWALK_TRACING
 						lswFrameNew(walkState->walkThread->javaVM, walkState, LSW_FRAME_TYPE_JIT_INLINE);
 						lswRecord(walkState, LSW_TYPE_UNWIND_SP, walkState->unwindSP);
 						lswRecord(walkState, LSW_TYPE_METHOD, walkState->method);
@@ -233,7 +233,7 @@ resumeWalkInline:
 		lswFrameNew(walkState->walkThread->javaVM, walkState, LSW_FRAME_TYPE_JIT);
 		lswRecord(walkState, LSW_TYPE_UNWIND_SP, walkState->unwindSP);
 		lswRecord(walkState, LSW_TYPE_METHOD, walkState->method);
-#endif	
+#endif
 
 #ifdef J9VM_INTERP_STACKWALK_TRACING
 		jitPrintFrameType(walkState, "JIT");
@@ -249,7 +249,7 @@ resumeWalkInline:
 
 #ifdef J9VM_INTERP_LINEAR_STACKWALK_TRACING
 		lswRecord(walkState, LSW_TYPE_JIT_FRAME_INFO, walkState);
-#endif	 
+#endif
 		if ((rc = walkFrame(walkState)) != J9_STACKWALK_KEEP_ITERATING) {
 			return rc;
 		}
@@ -358,7 +358,7 @@ static UDATA walkTransitionFrame(J9StackWalkState *walkState)
 #endif
 #ifdef J9VM_INTERP_LINEAR_STACKWALK_TRACING
 		lswRecord(walkState, LSW_TYPE_RESOLVE_FRAME_TYPE, (void*)resolveFrameType);
-#endif		
+#endif
 
 		if (resolveFrameType == J9_STACK_FLAGS_JIT_DATA_RESOLVE) {
 			if (walkState->flags & J9_STACKWALK_MAINTAIN_REGISTER_MAP) {
@@ -465,7 +465,7 @@ static UDATA walkTransitionFrame(J9StackWalkState *walkState)
 			/* Symbol not visible from verbose */
 			Assert_JSWalk_invalidFrameType();
 #endif
-		}	
+		}
 	} else { /* inl */
 		J9SFSpecialFrame * specialFrame = (J9SFSpecialFrame *) ((U_8 *) walkState->bp - sizeof(J9SFSpecialFrame) + sizeof(UDATA));
 
@@ -489,11 +489,11 @@ static UDATA walkTransitionFrame(J9StackWalkState *walkState)
 
 static void jitPrintFrameType(J9StackWalkState * walkState, char * frameType)
 {
-	swPrintf(walkState, 2, "%s frame: bp = %p, pc = %p, unwindSP = %p, cp = %p, arg0EA = %p, jitInfo = %p\n", 
-			 frameType, walkState->bp, walkState->pc, walkState->unwindSP, 
+	swPrintf(walkState, 2, "%s frame: bp = %p, pc = %p, unwindSP = %p, cp = %p, arg0EA = %p, jitInfo = %p\n",
+			 frameType, walkState->bp, walkState->pc, walkState->unwindSP,
 			 walkState->constantPool, walkState->arg0EA, walkState->jitInfo);
 	swPrintMethod(walkState);
-	swPrintf(walkState, 3, "\tBytecode index = %d, inlineDepth = %d, PC offset = %p\n", 
+	swPrintf(walkState, 3, "\tBytecode index = %d, inlineDepth = %d, PC offset = %p\n",
 			 walkState->bytecodePCOffset, walkState->inlineDepth, walkState->pc - (U_8 *) walkState->method->extra);
 }
 #endif /* J9VM_INTERP_STACKWALK_TRACING (autogen) */
@@ -737,7 +737,7 @@ static void jitWalkRegisterMap(J9StackWalkState *walkState, void *stackMap, J9JI
 					swPrintf(walkState, 4, "\t\t\t-> %p\n", newObject);
 				}
 #ifdef J9VM_INTERP_LINEAR_STACKWALK_TRACING
-				lswRecordSlot(walkState, targetObject, LSW_TYPE_O_SLOT, "O-Slot"); 
+				lswRecordSlot(walkState, targetObject, LSW_TYPE_O_SLOT, "O-Slot");
 #endif
 
 #endif
@@ -1349,7 +1349,7 @@ void jitPrintRegisterMapArray(J9StackWalkState * walkState, char * description)
 #ifdef J9VM_INTERP_LINEAR_STACKWALK_TRACING
 			lswRecordSlot(walkState, registerSaveAddress, LSW_TYPE_JIT_REG_SLOT, "%s: %s", description, jitRegisterNames[i]);
 #endif
-			swPrintf(walkState, 3, "\tJIT-%s-RegisterMap[%p] = %p (%s)\n", description, registerSaveAddress, 
+			swPrintf(walkState, 3, "\tJIT-%s-RegisterMap[%p] = %p (%s)\n", description, registerSaveAddress,
 					 *registerSaveAddress, jitRegisterNames[i]);
 		}
 	}
@@ -1634,9 +1634,9 @@ stackAllocatedObjectSlotWalkFunction(J9JavaVM *javaVM, J9MM_IterateObjectDescrip
 	j9object_t oldValue = refDesc->object;
 
 	swPrintf(walkState, 4, "\t\t\tF-Slot[%p] = %p\n", refDesc->fieldAddress, refDesc->object);
-#ifdef J9VM_INTERP_LINEAR_STACKWALK_TRACING	
+#ifdef J9VM_INTERP_LINEAR_STACKWALK_TRACING
 	lswRecordSlot(walkState, refDesc->fieldAddress, LSW_TYPE_F_SLOT, "F-Slot");
-#endif	
+#endif
 	swMarkSlotAsObject(walkState, (j9object_t*)(((UDATA)refDesc->fieldAddress) & ~(UDATA)(sizeof(UDATA) - 1)));
 #endif /* J9VM_INTERP_STACKWALK_TRACING */
 
@@ -1657,7 +1657,7 @@ stackAllocatedObjectSlotWalkFunction(J9JavaVM *javaVM, J9MM_IterateObjectDescrip
  * userData3 = monitorEnterRecords
  * userData4 = stack depth, including inlines
  */
-UDATA 
+UDATA
 jitGetOwnedObjectMonitors(J9StackWalkState *walkState)
 {
 	J9JITStackAtlas *gcStackAtlas;
@@ -1685,10 +1685,14 @@ jitGetOwnedObjectMonitors(J9StackWalkState *walkState)
 	/* get the stackmap and inline map for the given pc (this is a single walk of jit metadata) */
 	jitGetMapsFromPC(walkState->currentThread, walkState->javaVM, walkState->jitInfo, (UDATA)walkState->pc, &stackMap, &inlineMap);
 
+   Trc_Jswalk_jitGetOwnedObjectMonitors_1(walkState->currentThread, walkState, walkState->jitInfo, walkState->pc);
+
 	/* get a slot map of all live monitors on the JIT frame.  May include slots from inlined methods */
 	liveMonitorMap = getJitLiveMonitors(walkState->jitInfo, stackMap);
 	gcStackAtlas = (J9JITStackAtlas *)getJitGCStackAtlas(walkState->jitInfo);
 	numberOfMapBits = getJitNumberOfMapBytes(gcStackAtlas) << 3;
+
+   Trc_Jswalk_jitGetOwnedObjectMonitors_2(walkState->currentThread, walkState, liveMonitorMap, gcStackAtlas, numberOfMapBits);
 
 	/*
 	 * walk the inlined methods and use the new monitor mask interface to find live
@@ -1711,6 +1715,7 @@ jitGetOwnedObjectMonitors(J9StackWalkState *walkState)
 					if (NULL != inlineMonitorMask) {
 #if JAVA_SPEC_VERSION >= 24
 						if (prepareForYield) {
+                     Trc_Jswalk_jitGetOwnedObjectMonitors_3(walkState->currentThread, walkState, inlineMonitorMask, numberOfMapBits);
 							rc = walkLiveMonitorSlotsForYield(walkState, gcStackAtlas, liveMonitorMap, inlineMonitorMask, numberOfMapBits);
 						} else
 #endif /* JAVA_SPEC_VERSION >= 24 */
@@ -1742,6 +1747,7 @@ jitGetOwnedObjectMonitors(J9StackWalkState *walkState)
 		if (liveMonitorMap) {
 #if JAVA_SPEC_VERSION >= 24
 			if (prepareForYield) {
+            Trc_Jswalk_jitGetOwnedObjectMonitors_4(walkState->currentThread, walkState, numberOfMapBits);
 				rc = walkLiveMonitorSlotsForYield(walkState, gcStackAtlas, liveMonitorMap, getMonitorMask(gcStackAtlas, NULL), numberOfMapBits);
 			} else
 #endif /* JAVA_SPEC_VERSION >= 24 */
@@ -1869,6 +1875,8 @@ walkLiveMonitorSlotsForYield(J9StackWalkState *walkState, J9JITStackAtlas *gcSta
 	J9VMThread *currentThread = walkState->currentThread;
 	J9InternalVMFunctions const * const vmFuncs = walkState->javaVM->internalVMFunctions;
 
+   Trc_Jswalk_walkLiveMonitorSlotsForYield_1(currentThread, walkState, gcStackAtlas, liveMonitorMap, numberOfMapBits, targetSyncObject, monitorCount);
+
 	for (i = 0; i < numberOfMapBits; ++i) {
 		bit = liveMonitorMap[i >> 3] & monitorMask[i >> 3] & (1 << (i & 7));
 		if (bit) {
@@ -1880,6 +1888,8 @@ walkLiveMonitorSlotsForYield(J9StackWalkState *walkState, J9JITStackAtlas *gcSta
 			if (NULL != objAddress) {
 				j9object_t obj = *objAddress;
 
+            Trc_Jswalk_walkLiveMonitorSlotsForYield_2(currentThread, walkState, i, objAddress, obj, monitorCount);
+
 				if ((NULL != obj) && (targetSyncObject != obj)) {
 					J9ObjectMonitor *mon = vmFuncs->detachMonitorInfo(currentThread, obj);
 					if (NULL == mon) {
@@ -1888,12 +1898,16 @@ walkLiveMonitorSlotsForYield(J9StackWalkState *walkState, J9JITStackAtlas *gcSta
 					mon->next = objMonitorHead;
 					objMonitorHead = mon;
 					monitorCount++;
+
+               Trc_Jswalk_walkLiveMonitorSlotsForYield_3(currentThread, walkState, i, mon, monitorCount);
 				}
 			}
 		}
 	}
 	walkState->userData1 = objMonitorHead;
 	walkState->userData4 = (void*)monitorCount;
+
+   Trc_Jswalk_walkLiveMonitorSlotsForYield_4(currentThread, walkState, monitorCount);
 	return J9_STACKWALK_KEEP_ITERATING;
 }
 #endif /* JAVA_SPEC_VERSION >= 24 */

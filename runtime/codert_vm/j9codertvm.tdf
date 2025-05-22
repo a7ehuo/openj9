@@ -184,3 +184,13 @@ TraceEntry=Trc_Decomp_DecompileAfterMonitorEnter_Entry Overhead=1 Level=2 Templa
 TraceExit=Trc_Decomp_DecompileAfterMonitorEnter_Exit Overhead=1 Level=2 Template="DecompileAfterMonitorEnter exit: exitPC = %p, method = %p"
 TraceEntry=Trc_Decomp_DecompileOnReturn_Entry Overhead=1 Level=2 Template="DecompileOnReturn entry: pc = %p, sp = %p"
 TraceExit=Trc_Decomp_DecompileOnReturn_Exit Overhead=1 Level=2 Template="DecompileOnReturn exit: pc = %p, sp = %p, returnVal = %p"
+
+TraceEvent=Trc_Jswalk_jitGetOwnedObjectMonitors_1 Overhead=1 Level=1 Template="1. walkState %p, walkState->jitInfo %p, walkState->pc %p"
+TraceEvent=Trc_Jswalk_jitGetOwnedObjectMonitors_2 Overhead=1 Level=1 Template="2. walkState %p, liveMonitorMap %p, gcStackAtlas %p, numberOfMapBits %d"
+TraceEvent=Trc_Jswalk_jitGetOwnedObjectMonitors_3 Overhead=1 Level=1 Template="3. walkState %p, inlineMonitorMask %p, numberOfMapBits %d"
+TraceEvent=Trc_Jswalk_jitGetOwnedObjectMonitors_4 Overhead=1 Level=1 Template="4. walkState %p, numberOfMapBits %d"
+
+TraceEvent=Trc_Jswalk_walkLiveMonitorSlotsForYield_1 Overhead=1 Level=1 Template="1. walkState %p, gcStackAtlas %p, liveMonitorMap %p, numberOfMapBits %d, targetSyncObject %p, monitorCount %d"
+TraceEvent=Trc_Jswalk_walkLiveMonitorSlotsForYield_2 Overhead=1 Level=1 Template="2. walkState %p, i %d, objAddress %p, obj %p, monitorCount %d"
+TraceEvent=Trc_Jswalk_walkLiveMonitorSlotsForYield_3 Overhead=1 Level=1 Template="3. walkState %p, i %d, mon %p, monitorCount %d"
+TraceEvent=Trc_Jswalk_walkLiveMonitorSlotsForYield_4 Overhead=1 Level=1 Template="4. walkState %p, monitorCount %d"

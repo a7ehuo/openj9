@@ -872,11 +872,13 @@ ownedMonitorsIterator(J9VMThread *currentThread, J9StackWalkState *walkState)
 	J9JavaVM* javaVM = walkState->walkThread->javaVM;
 #ifdef J9VM_INTERP_NATIVE_SUPPORT
 	if (walkState->jitInfo) {
+      Trc_VM_OwnedMonitorsIterator_1(currentThread, walkState);
 		/* The jit walk may increment/decrement the stack depth */
 		rc = javaVM->jitGetOwnedObjectMonitors(walkState);
 	} else
 #endif
 	{
+      Trc_VM_OwnedMonitorsIterator_2(currentThread, walkState);
 		/* The walk function may decrement the stack depth if a hidden frame is skipped */
 		rc = walkFrameMonitorEnterRecords(currentThread, walkState);
 	}
@@ -1057,6 +1059,8 @@ restart:
 		enteredMonitorsList = (J9ObjectMonitor*)walkState.userData1;
 		monitorCount = (UDATA)walkState.userData4;
 
+      Trc_VM_Prepare_Pinned_Vthread_1(currentThread, walkState, syncObj, currentThread->monitorEnterRecords, walkState.userData1, (UDATA)walkState.userData4);
+
 		/* Inflate all owned monitors. */
 		/* Repeat for JNI monitor records. */
 		J9MonitorEnterRecord *monitorRecords = currentThread->jniMonitorEnterRecords;
@@ -1077,6 +1081,8 @@ restart:
 		}
 		continuation->enteredMonitors = enteredMonitorsList;
 	}
+   Trc_VM_Prepare_Pinned_Vthread_2(currentThread, monitorCount);
+
 	Assert_VM_true(monitorCount <= currentThread->ownedMonitorCount);
 
 	if (NULL != syncObj) {

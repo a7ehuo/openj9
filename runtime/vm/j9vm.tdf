@@ -1020,3 +1020,9 @@ TraceExit=Trc_VM_getTypeId_Exit Overhead=1 Level=5 Template="getTypeId clazz=%p 
 
 TraceEvent=Trc_systemPropertyIterator Overhead=1 Level=10 Template="systemPropertyIterator: added VM system property '%s'='%s'"
 TraceExit-Exception=Trc_VM_objectMonitorExit_Exit_LearningStateUnowned Overhead=1 Level=4 Template="objectMonitorExit (IllegalMonitorState: Lock in learning state but unowned. Flat lock=%p, object=%p)"
+
+TraceEvent=Trc_VM_Prepare_Pinned_Vthread_1 Overhead=1 Level=1 Template="1. walkState %p, syncObj %p, monitorEnterRecords %p, walkState.userData1 %p, walkState.userData4 %d"
+TraceEvent=Trc_VM_Prepare_Pinned_Vthread_2 Overhead=1 Level=1 Template="2. monitorCount %d"
+
+TraceEvent=Trc_VM_OwnedMonitorsIterator_1 Overhead=1 Level=1 Template="1. walkState %p"
+TraceEvent=Trc_VM_OwnedMonitorsIterator_2 Overhead=1 Level=1 Template="2. walkState %p"
