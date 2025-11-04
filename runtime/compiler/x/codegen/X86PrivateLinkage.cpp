@@ -44,6 +44,7 @@
 #include "env/StackMemoryRegion.hpp"
 #include "env/jittypes.h"
 #include "env/VMJ9.h"
+#include "env/VerboseLog.hpp"
 #include "il/DataTypes.hpp"
 #include "il/Node.hpp"
 #include "il/Node_inlines.hpp"
@@ -2975,6 +2976,15 @@ void J9::X86::PrivateLinkage::buildInterfaceDispatchUsingLastITable (TR::X86Call
 
             if (trace)
                traceMsg(comp(), "%s: declaringClass %p numImplementers %d maxInterfaces %d iterations %d\n", __FUNCTION__, declaringClass, numImplementers, maxInterfaces, iterations);
+
+            if (cg()->comp()->getOptions()->isAnyVerboseOptionSet())
+               TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "%s: declaringClass %p numImplementers %d maxInterfaces %d iterations %d. %s\n", __FUNCTION__,
+                  declaringClass, numImplementers, maxInterfaces, iterations, cg()->comp()->signature());
+            }
+         else
+            {
+            if (cg()->comp()->getOptions()->isAnyVerboseOptionSet())
+               TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "%s: numImplementers %d. %s\n", __FUNCTION__, numImplementers, cg()->comp()->signature());
             }
          }
 
@@ -2986,6 +2996,9 @@ void J9::X86::PrivateLinkage::buildInterfaceDispatchUsingLastITable (TR::X86Call
 
       if (trace)
          traceMsg(comp(), "%s: Final iterations %d before generating the iTable entry comparison\n", __FUNCTION__, iterations);
+
+      if (cg()->comp()->getOptions()->isAnyVerboseOptionSet())
+         TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "%s: Final iterations %d. %s\n", __FUNCTION__, iterations, cg()->comp()->signature());
 
       //------------
       TR::LabelSymbol *iterateITableLabel = generateLabelSymbol(cg());
