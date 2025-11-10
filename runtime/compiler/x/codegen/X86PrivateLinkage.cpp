@@ -3034,6 +3034,8 @@ void J9::X86::PrivateLinkage::buildInterfaceDispatchUsingLastITable (TR::X86Call
       //
       og.endOutlinedInstructionSequence();
 
+      // Test github email change
+
       //----------------------------------------------
       // This extra JNE to lookupDispatchSnippetLabel is required because routines in X86PicBuilder,
       // such as resolveIPicClass, expects the last JNE before the done label must jmp to the look up routine.
