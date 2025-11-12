@@ -4590,6 +4590,43 @@ TR::CompilationInfoPerThread::processEntry(TR_MethodToBeCompiled &entry, J9::J9S
    if (!entry.isOutOfProcessCompReq())
       TR::CompilationController::getCompilationStrategy()->adjustOptimizationPlan(&entry, 0);
 
+   if (TR::Options::getCmdLineOptions()->getOption(TR_EnableLimitCompilationToVeryHot)
+      || (TR::Options::getCmdLineOptions()->getOption(TR_EnableLimitCompilationToHot)))
+      {
+      J9UTF8 *className;
+      J9UTF8 *name;
+      J9UTF8 *signature;
+      getClassNameSignatureFromMethod(entry.getMethodDetails().getMethod(), className, name, signature);
+      char *methodSignature;
+      char arr[256];
+      memset(arr, 0, sizeof(arr));
+      int32_t len = J9UTF8_LENGTH(className) + J9UTF8_LENGTH(name) + J9UTF8_LENGTH(signature) + 3;
+      if (len < 256)
+         {
+         methodSignature = arr;
+         snprintf(methodSignature, len, "%.*s.%.*s%.*s",
+               J9UTF8_LENGTH(className), utf8Data(className),
+               J9UTF8_LENGTH(name), utf8Data(name),
+               J9UTF8_LENGTH(signature), utf8Data(signature));
+
+         const char *method_1 = "seq$0020flow$003e1/FASTEngine.execute(";
+         const char *method_2 = "seq$0020flow$003e2/FASTEngine.execute(";
+         const char *method_3 = "seq$0020flow$003e3/FASTEngine.execute(";
+
+         if (strstr(arr, method_1) || strstr(arr, method_2) || strstr(arr, method_3))
+            {
+            if (TR::Options::isAnyVerboseOptionSet())
+               TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "DEBUG optLevel=%d %s\n", entry._optimizationPlan->getOptLevel(), methodSignature);
+
+            if (entry._optimizationPlan->getOptLevel() == scorching)
+               {
+               TR_Hotness hotnessLevel = TR::Options::getCmdLineOptions()->getOption(TR_EnableLimitCompilationToVeryHot) ? veryHot : hot;
+               entry._optimizationPlan->setOptLevel(hotnessLevel);
+               }
+            }
+         }
+      }
+
    entry._tryCompilingAgain = false; // this field may be set by compile()
 
    // The following call will return with compilation monitor and the
