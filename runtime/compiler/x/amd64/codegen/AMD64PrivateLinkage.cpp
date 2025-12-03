@@ -1288,6 +1288,23 @@ void J9::X86::AMD64::PrivateLinkage::buildIPIC(TR::X86CallSite &site, TR::LabelS
          }
       }
 
+   char *classSig = NULL;
+   int32_t len = 0;
+   const char *classBiConsumerName = "java/util/function/BiConsumer";
+   if (useLastITableCache && comp()->getOption(TR_EnableITableSkipPICSlots))
+      {
+      uintptr_t itableIndex;
+      TR_OpaqueClassBlock *declaringClass = site.getSymbolReference()->getOwningMethod(comp())->getResolvedInterfaceMethod(site.getSymbolReference()->getCPIndex(), &itableIndex);
+      classSig = declaringClass ? TR::Compiler->cls.classSignature_DEPRECATED(comp(), declaringClass, len, comp()->trMemory()) : NULL;
+
+      if (classSig && strstr(classSig, classBiConsumerName))
+         {
+         numIPicSlots = 0;
+
+         if (comp()->getOption(TR_TraceCG))
+            traceMsg(comp(), "%s: declaringClass %p %.*s TR_EnableITableSkipPICSlots 1 numIPicSlots = 0\n", __FUNCTION__, declaringClass, classSig ? len : 0, classSig ? classSig : "");
+         }
+      }
 
    if (numIPicSlots > 1)
       {

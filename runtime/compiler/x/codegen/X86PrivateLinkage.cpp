@@ -2932,6 +2932,37 @@ void J9::X86::PrivateLinkage::buildInterfaceDispatchUsingLastITable (TR::X86Call
    TR::LabelSymbol *lastITableTestLabel     = generateLabelSymbol(cg());
    TR::LabelSymbol *lastITableDispatchLabel = generateLabelSymbol(cg());
 
+   bool trace = comp()->getOption(TR_TraceCG);
+   char *classSig = NULL;
+   int32_t len = 0;
+   bool isDeclaringClassBiConsumer = false;
+   const char *classBiConsumerName = "java/util/function/BiConsumer";
+
+   if (comp()->getOption(TR_EnableITableFavSuccessPathAfterLastITableCacheCheck) ||
+       //comp()->getOption(TR_EnableITableSkipPICSlots) ||
+       trace ||
+       comp()->getOptions()->isAnyVerboseOptionSet())
+      {
+      classSig = TR::Compiler->cls.classSignature_DEPRECATED(comp(), declaringClass, len, comp()->trMemory());
+      }
+
+   if (classSig && strstr(classSig, classBiConsumerName))
+      {
+      isDeclaringClassBiConsumer = true;
+
+      if (comp()->getOptions()->isAnyVerboseOptionSet())
+         TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "%s: DEBUG declaringClass %p %.*s isDeclaringClassBiConsumer 1 %s\n", __FUNCTION__, declaringClass, classSig ? len : 0, classSig ? classSig : "", comp()->signature());
+      if (trace)
+         traceMsg(comp(), "%s: declaringClass %p %.*s isDeclaringClassBiConsumer 1\n", __FUNCTION__, declaringClass, classSig ? len : 0, classSig ? classSig : "");
+      }
+
+#if 0
+   if (comp()->getOption(TR_EnableITableSkipPICSlots) && isDeclaringClassBiConsumer)
+      {
+      generateLabelInstruction(TR::InstOpCode::JMP4, callNode, lastITableTestLabel, cg());
+      }
+   else
+#endif
    if (numIPicSlots >= 1)
       {
       // The last PIC slot looks much like the others
@@ -3076,13 +3107,6 @@ void J9::X86::PrivateLinkage::buildInterfaceDispatchUsingLastITable (TR::X86Call
       const uint32_t MAX_ITABLE_ITERATIONS = 4;
       uint32_t iterations = MAX_ITABLE_ITERATIONS;
 
-      bool trace = comp()->getOption(TR_TraceCG);
-
-      char *classSig = NULL;
-      int32_t len = 0;
-      if (trace || comp()->getOptions()->isAnyVerboseOptionSet())
-         classSig = TR::Compiler->cls.classSignature_DEPRECATED(comp(), declaringClass, len, comp()->trMemory());
-
       //------------
       // Estimate how many entries to iterate on the iTable by looking at how many
       // interfaces the receiver class might implement:
@@ -3153,16 +3177,28 @@ void J9::X86::PrivateLinkage::buildInterfaceDispatchUsingLastITable (TR::X86Call
       iterations = numITableIterationsAfterLastITableCacheCheck ? numITableIterationsAfterLastITableCacheCheckValue : iterations;
 
       if (trace)
-         traceMsg(comp(), "%s: declaringClass %p %.*s. Final iterations %d before generating the iTable entry comparison\n", __FUNCTION__, declaringClass, classSig ? len : 0, classSig ? classSig : "", iterations);
-
+         traceMsg(comp(), "%s: declaringClass %p %.*s. numIPicSlots %d Final iterations %d before generating the iTable entry comparison\n", __FUNCTION__, declaringClass, classSig ? len : 0, classSig ? classSig : "", numIPicSlots, iterations);
       if (comp()->getOptions()->isAnyVerboseOptionSet())
-         TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "%s: DEBUG-4 declaringClass %p %.*s Final iterations %d. %s\n", __FUNCTION__, declaringClass, classSig ? len : 0, classSig ? classSig : "", iterations, comp()->signature());
+         TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "%s: DEBUG-4 declaringClass %p %.*s. numIPicSlots %d Final iterations %d. %s\n", __FUNCTION__, declaringClass, classSig ? len : 0, classSig ? classSig : "", numIPicSlots, iterations, comp()->signature());
 
       //------------
       TR::LabelSymbol *iterateITableLabel = generateLabelSymbol(cg());
       TR::LabelSymbol *gotoLastITableDispatchLabel = generateLabelSymbol(cg());
 
-      generateLongLabelInstruction(TR::InstOpCode::JNE4, callNode, iterateITableLabel, cg());
+      if (comp()->getOption(TR_EnableITableFavSuccessPathAfterLastITableCacheCheck) && isDeclaringClassBiConsumer)
+         {
+         generateLongLabelInstruction(TR::InstOpCode::JE4, callNode, gotoLastITableDispatchLabel, cg());
+         generateLongLabelInstruction(TR::InstOpCode::JMP4, callNode, iterateITableLabel, cg());
+
+         if (trace)
+            traceMsg(comp(), "%s: declaringClass %p %.*s. TR_EnableITableFavSuccessPathAfterLastITableCacheCheck 1\n", __FUNCTION__, declaringClass, classSig ? len : 0, classSig ? classSig : "");
+         if (comp()->getOptions()->isAnyVerboseOptionSet())
+            TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "%s: DEBUG-5 declaringClass %p %.*s TR_EnableITableFavSuccessPathAfterLastITableCacheCheck 1. %s\n", __FUNCTION__, declaringClass, classSig ? len : 0, classSig ? classSig : "", comp()->signature());
+         }
+      else
+         {
+         generateLongLabelInstruction(TR::InstOpCode::JNE4, callNode, iterateITableLabel, cg());
+         }
 
       // The following sequence of instructions that iterate through the iTable cannot be inserted
       // after the test of the lastITableCache in the mainline code.  The routines in X86PicBuilder,
