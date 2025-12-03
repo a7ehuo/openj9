@@ -2939,7 +2939,6 @@ void J9::X86::PrivateLinkage::buildInterfaceDispatchUsingLastITable (TR::X86Call
    const char *classBiConsumerName = "java/util/function/BiConsumer";
 
    if (comp()->getOption(TR_EnableITableFavSuccessPathAfterLastITableCacheCheck) ||
-       //comp()->getOption(TR_EnableITableSkipPICSlots) ||
        trace ||
        comp()->getOptions()->isAnyVerboseOptionSet())
       {
@@ -2956,13 +2955,6 @@ void J9::X86::PrivateLinkage::buildInterfaceDispatchUsingLastITable (TR::X86Call
          traceMsg(comp(), "%s: declaringClass %p %.*s isDeclaringClassBiConsumer 1\n", __FUNCTION__, declaringClass, classSig ? len : 0, classSig ? classSig : "");
       }
 
-#if 0
-   if (comp()->getOption(TR_EnableITableSkipPICSlots) && isDeclaringClassBiConsumer)
-      {
-      generateLabelInstruction(TR::InstOpCode::JMP4, callNode, lastITableTestLabel, cg());
-      }
-   else
-#endif
    if (numIPicSlots >= 1)
       {
       // The last PIC slot looks much like the others
@@ -3185,7 +3177,19 @@ void J9::X86::PrivateLinkage::buildInterfaceDispatchUsingLastITable (TR::X86Call
       TR::LabelSymbol *iterateITableLabel = generateLabelSymbol(cg());
       TR::LabelSymbol *gotoLastITableDispatchLabel = generateLabelSymbol(cg());
 
-      if (comp()->getOption(TR_EnableITableFavSuccessPathAfterLastITableCacheCheck) && isDeclaringClassBiConsumer)
+      const char *method_1 = "seq$0020flow$003e1/FASTEngine.execute(";
+      const char *method_2 = "seq$0020flow$003e2/FASTEngine.execute(";
+      const char *method_3 = "seq$0020flow$003e3/FASTEngine.execute(";
+
+      bool favSuccessPathAfterLastITableCacheCheck = false;
+      if (comp()->getOption(TR_EnableITableFavSuccessPathAfterLastITableCacheCheck) &&
+          isDeclaringClassBiConsumer &&
+          (strstr(comp()->signature(), method_1) || strstr(comp()->signature(), method_2) || strstr(comp()->signature(), method_3)))
+         {
+         favSuccessPathAfterLastITableCacheCheck = true;
+         }
+
+      if (favSuccessPathAfterLastITableCacheCheck)
          {
          generateLongLabelInstruction(TR::InstOpCode::JE4, callNode, gotoLastITableDispatchLabel, cg());
          generateLongLabelInstruction(TR::InstOpCode::JMP4, callNode, iterateITableLabel, cg());

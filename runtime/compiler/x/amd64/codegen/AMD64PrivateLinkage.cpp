@@ -1293,16 +1293,23 @@ void J9::X86::AMD64::PrivateLinkage::buildIPIC(TR::X86CallSite &site, TR::LabelS
    const char *classBiConsumerName = "java/util/function/BiConsumer";
    if (useLastITableCache && comp()->getOption(TR_EnableITableSkipPICSlots))
       {
-      uintptr_t itableIndex;
-      TR_OpaqueClassBlock *declaringClass = site.getSymbolReference()->getOwningMethod(comp())->getResolvedInterfaceMethod(site.getSymbolReference()->getCPIndex(), &itableIndex);
-      classSig = declaringClass ? TR::Compiler->cls.classSignature_DEPRECATED(comp(), declaringClass, len, comp()->trMemory()) : NULL;
+      const char *method_1 = "seq$0020flow$003e1/FASTEngine.execute(";
+      const char *method_2 = "seq$0020flow$003e2/FASTEngine.execute(";
+      const char *method_3 = "seq$0020flow$003e3/FASTEngine.execute(";
 
-      if (classSig && strstr(classSig, classBiConsumerName))
+      if (strstr(comp()->signature(), method_1) || strstr(comp()->signature(), method_2) || strstr(comp()->signature(), method_3))
          {
-         numIPicSlots = 0;
+         uintptr_t itableIndex;
+         TR_OpaqueClassBlock *declaringClass = site.getSymbolReference()->getOwningMethod(comp())->getResolvedInterfaceMethod(site.getSymbolReference()->getCPIndex(), &itableIndex);
+         classSig = declaringClass ? TR::Compiler->cls.classSignature_DEPRECATED(comp(), declaringClass, len, comp()->trMemory()) : NULL;
 
-         if (comp()->getOption(TR_TraceCG))
-            traceMsg(comp(), "%s: declaringClass %p %.*s TR_EnableITableSkipPICSlots 1 numIPicSlots = 0\n", __FUNCTION__, declaringClass, classSig ? len : 0, classSig ? classSig : "");
+         if (classSig && strstr(classSig, classBiConsumerName))
+            {
+            numIPicSlots = 0;
+
+            if (comp()->getOption(TR_TraceCG))
+               traceMsg(comp(), "%s: declaringClass %p %.*s TR_EnableITableSkipPICSlots 1 numIPicSlots = 0\n", __FUNCTION__, declaringClass, classSig ? len : 0, classSig ? classSig : "");
+            }
          }
       }
 
