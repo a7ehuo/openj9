@@ -1291,13 +1291,22 @@ void J9::X86::AMD64::PrivateLinkage::buildIPIC(TR::X86CallSite &site, TR::LabelS
    char *classSig = NULL;
    int32_t len = 0;
    const char *classBiConsumerName = "java/util/function/BiConsumer";
-   if (useLastITableCache && comp()->getOption(TR_EnableITableSkipPICSlots))
+   if (useLastITableCache && (comp()->getOption(TR_EnableITableSkipPICSlots) || comp()->getOption(TR_EnableITableSkipPICSlotsForThreeMethods)))
       {
       const char *method_1 = "seq$0020flow$003e1/FASTEngine.execute(";
       const char *method_2 = "seq$0020flow$003e2/FASTEngine.execute(";
       const char *method_3 = "seq$0020flow$003e3/FASTEngine.execute(";
+      bool methodMatched = true;
 
-      if (strstr(comp()->signature(), method_1) || strstr(comp()->signature(), method_2) || strstr(comp()->signature(), method_3))
+      if (comp()->getOption(TR_EnableITableSkipPICSlotsForThreeMethods))
+         {
+         if (strstr(comp()->signature(), method_1) || strstr(comp()->signature(), method_2) || strstr(comp()->signature(), method_3))
+            { }
+         else
+            methodMatched = false;
+         }
+
+      if (methodMatched)
          {
          uintptr_t itableIndex;
          TR_OpaqueClassBlock *declaringClass = site.getSymbolReference()->getOwningMethod(comp())->getResolvedInterfaceMethod(site.getSymbolReference()->getCPIndex(), &itableIndex);
@@ -1308,7 +1317,10 @@ void J9::X86::AMD64::PrivateLinkage::buildIPIC(TR::X86CallSite &site, TR::LabelS
             numIPicSlots = 0;
 
             if (comp()->getOption(TR_TraceCG))
-               traceMsg(comp(), "%s: declaringClass %p %.*s TR_EnableITableSkipPICSlots 1 numIPicSlots = 0\n", __FUNCTION__, declaringClass, classSig ? len : 0, classSig ? classSig : "");
+               traceMsg(comp(), "%s: declaringClass %p %.*s TR_EnableITableSkipPICSlots 1 numIPicSlots 0\n", __FUNCTION__, declaringClass, classSig ? len : 0, classSig ? classSig : "");
+
+            if (comp()->getOptions()->isAnyVerboseOptionSet())
+               TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "%s: DEBUG declaringClass %p %.*s TR_EnableITableSkipPICSlots 1 numIPicSlots 0 %s\n", __FUNCTION__, declaringClass, classSig ? len : 0, classSig ? classSig : "", comp()->signature());
             }
          }
       }
