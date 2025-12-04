@@ -1434,7 +1434,7 @@ void TR::X86CallSite::computeProfiledTargets()
       float missRatio = 0.0;
 
       if (comp()->getOption(TR_TraceCG))
-         traceMsg(comp(), "addressInfo %p topValue 0x%x getTopValue %d isObsoleteClass %d getTopProbability %f getMinProfiledCallFrequency %f\n", addressInfo, topValue,
+         traceMsg(comp(), "%s: addressInfo %p topValue 0x%x getTopValue %d isObsoleteClass %d getTopProbability %f getMinProfiledCallFrequency %f\n", __FUNCTION__, addressInfo, topValue,
                addressInfo ? addressInfo->getTopValue(topValue) : -1,
                topValue ? comp()->getPersistentInfo()->isObsoleteClass((void*)topValue, fej9) : -1,
                addressInfo ? addressInfo->getTopProbability() : -1.0f,
@@ -1853,6 +1853,9 @@ TR::Register *J9::X86::PrivateLinkage::buildIndirectDispatch(TR::Node *callNode)
       TR_ScratchList<TR::X86PICSlot> *profiledTargets = site.getProfiledTargets();
       if (profiledTargets)
          {
+         if (comp()->getOption(TR_TraceCG))
+            traceMsg(comp(), "%s: profiledTargets %p\n", __FUNCTION__, profiledTargets);
+
          ListIterator<TR::X86PICSlot> i(profiledTargets);
          TR::X86PICSlot *picSlot = i.getFirst();
          while (picSlot)
@@ -1861,6 +1864,9 @@ TR::Register *J9::X86::PrivateLinkage::buildIndirectDispatch(TR::Node *callNode)
 
             if (comp()->target().is32Bit())
                picSlot->setNeedsPicCallAlignment();
+
+            if (comp()->getOption(TR_TraceCG))
+               traceMsg(comp(), "%s: buildPICSlot picSlot %p\n", __FUNCTION__, picSlot);
 
             TR::Instruction *instr = buildPICSlot(*picSlot, picMismatchLabel, doneLabel, site);
 
@@ -2965,11 +2971,78 @@ void J9::X86::PrivateLinkage::buildInterfaceDispatchUsingLastITable (TR::X86Call
       }
    else
       {
-      // The sequence below requires control to flow straight to lastITableTestLabel
-      // TODO: This is lame.  Without IPIC slots, generating this sequence
-      // upside-down is sub-optimal.
-      //
-      generateLabelInstruction(TR::InstOpCode::JMP4, callNode, lastITableTestLabel, cg());
+#if 0 
+      if (comp()->getOption(TR_EnableITableSkipPICSlotsForThreeMethods2) && isDeclaringClassBiConsumer)
+         {
+         if (trace)
+            traceMsg(comp(), "%s: declaringClass %p %.*s TR_EnableITableSkipPICSlotsForThreeMethods2 1\n", __FUNCTION__, declaringClass, classSig ? len : 0, classSig ? classSig : "");
+
+         // 1. The test sequence
+         //
+         generateRegMemInstruction(TR::InstOpCode::LRegMem(), callNode, scratchReg, generateX86MemoryReference(vftReg, (int32_t)fej9->getOffsetOfLastITableFromClassField(), cg()), cg());
+         bool use32BitInterfaceClassPointers = comp()->target().is32Bit();
+         if (comp()->useCompressedPointers() /* actually compressed object headers */)
+            {
+            // The field is 8 bytes, but only 4 matter
+            use32BitInterfaceClassPointers = true;
+            }
+         if (use32BitInterfaceClassPointers)
+            {
+            // The field is 8 bytes, but only 4 matter
+            generateMemImmInstruction(TR::InstOpCode::CMP4MemImm4,
+                                      callNode,
+                                      generateX86MemoryReference(scratchReg, fej9->getOffsetOfInterfaceClassFromITableField(), cg()),
+                                      (int32_t)(intptr_t)declaringClass,
+                                      cg());
+            }
+         else
+            {
+            TR_ASSERT(comp()->target().is64Bit(), "Only 64-bit path should reach here.");
+            TR::Register *interfaceClassReg = vtableIndexReg;
+            auto cds = cg()->findOrCreate8ByteConstant(site.getCallNode(), (intptr_t)declaringClass);
+            TR::MemoryReference *interfaceClassAddr = generateX86MemoryReference(cds, cg());
+            generateRegMemInstruction(TR::InstOpCode::LRegMem(), callNode, interfaceClassReg, interfaceClassAddr, cg());
+            generateMemRegInstruction(TR::InstOpCode::CMPMemReg(),
+                                      callNode,
+                                      generateX86MemoryReference(scratchReg, fej9->getOffsetOfInterfaceClassFromITableField(), cg()),
+                                      interfaceClassReg, cg());
+            }
+
+         generateLongLabelInstruction(TR::InstOpCode::JNE4, callNode, lookupDispatchSnippetLabel, cg());
+         if (comp()->target().is32Bit())
+            generatePaddingInstruction(3, callNode, cg());
+         generateLabelInstruction(TR::InstOpCode::CALLImm4, callNode, lastITableDispatchLabel, vtableIndexRegDeps, cg());
+#if 0
+         // Jump to the regular last iTable cache check
+         generateLongLabelInstruction(TR::InstOpCode::JNE4, callNode, lastITableTestLabel, cg());
+
+         // Do the dispatch via CALLImm so the return address points at a CALLImm site (required by the j2i thunk convention).
+         if (comp()->target().is32Bit())
+            generatePaddingInstruction(3, callNode, cg());
+         generateLabelInstruction(TR::InstOpCode::CALLImm4, callNode, lastITableDispatchLabel, vtableIndexRegDeps, cg());
+#endif
+
+#if 0 
+         // 2. Dispatch sequence
+         //
+         generateLabelInstruction(TR::InstOpCode::label, callNode, lastITableDispatch2Label, cg());
+
+         generateRegImmInstruction( TR::InstOpCode::MOV4RegImm4, callNode, vtableIndexReg, fej9->getITableEntryJitVTableOffset(), cg());
+
+         generateRegMemInstruction( TR::InstOpCode::SUBRegMem(), callNode, vtableIndexReg, generateX86MemoryReference(scratchReg, fej9->convertITableIndexToOffset(itableIndex), cg()), cg());
+
+         buildVFTCall(site,  TR::InstOpCode::JMPMem, NULL, generateX86MemoryReference(vftReg, vtableIndexReg, 0, cg()));
+#endif
+         }
+      else
+#endif
+         {
+         // The sequence below requires control to flow straight to lastITableTestLabel
+         // TODO: This is lame.  Without IPIC slots, generating this sequence
+         // upside-down is sub-optimal.
+         //
+         generateLabelInstruction(TR::InstOpCode::JMP4, callNode, lastITableTestLabel, cg());
+         }
       }
 
    TR::Register *vftReg          = site.evaluateVFT();
