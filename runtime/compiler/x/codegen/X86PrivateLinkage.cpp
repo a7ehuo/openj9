@@ -2802,129 +2802,99 @@ static void generateITableEntryLoop(uint32_t iterations,
    generateLabelInstruction(TR::InstOpCode::JMP4, callNode, lookupDispatchSnippetLabel, cg);
    }
 
-
-static void generateITableEntryLoop2(uint32_t iterations,
-                                       TR::Node *callNode,
-                                       TR::Register *scratchReg,
-                                       TR::Register *vftReg,
-                                       TR::Register *interfaceClassReg,
-                                       TR_OpaqueClassBlock *declaringClass,
-                                       bool use32BitInterfaceClassPointers,
-                                       TR::LabelSymbol *lookupDispatchSnippetLabel,
-                                       TR::LabelSymbol *gotoLastITableDispatchLabel,
-                                       TR::CodeGenerator *cg)
-
+void J9::X86::PrivateLinkage::buildInterfaceDispatchUsingLastITable2 (TR::X86CallSite &site, int32_t numIPicSlots, TR::X86PICSlot &lastPicSlot, TR::Instruction *&slotPatchInstruction, TR::LabelSymbol *doneLabel, TR::LabelSymbol *lookupDispatchSnippetLabel, TR_OpaqueClassBlock *declaringClass, uintptr_t itableIndex )
    {
-   TR_J9VMBase *fej9 = cg->fej9();
-   TR::Compilation *comp = cg->comp();
+   TR_J9VMBase *fej9 = (TR_J9VMBase *)(fe());
 
-   TR::RegisterDependencyConditions *deps = generateRegisterDependencyConditions(0, 3, cg);
-   TR::LabelSymbol *iTableLoopLabel = generateLabelSymbol(cg);
+   TR::Node *callNode = site.getCallNode();
 
-   deps->addPostCondition(vftReg, TR::RealRegister::NoReg, cg);
-   deps->addPostCondition(scratchReg, TR::RealRegister::NoReg, cg);
-   deps->addPostCondition(interfaceClassReg, TR::RealRegister::NoReg, cg);
+   TR::LabelSymbol *lastITableTestLabel     = generateLabelSymbol(cg());
+   TR::LabelSymbol *lastITableDispatchLabel = generateLabelSymbol(cg());
 
-   // scratchReg = j9class->iTable
-   generateRegMemInstruction(TR::InstOpCode::LRegMem(), callNode, scratchReg, generateX86MemoryReference(vftReg, offsetof(J9Class, iTable), cg), cg);
+   TR::Register *vftReg          = site.evaluateVFT();
+   TR::Register *scratchReg      = cg()->allocateRegister();
+   TR::Register *vtableIndexReg  = cg()->allocateRegister();
+   TR::RegisterDependencyConditions* vtableIndexRegDeps = generateRegisterDependencyConditions(1, 0, cg());
+   vtableIndexRegDeps->addPreCondition(vtableIndexReg, getProperties().getVTableIndexArgumentRegister(), cg());
 
-   generateLabelInstruction(TR::InstOpCode::label, callNode, iTableLoopLabel, deps, cg);
+   // 1. The test sequence
+   //
+   TR::Instruction *lastITableTestStart = generateLabelInstruction(TR::InstOpCode::label, callNode, lastITableTestLabel, cg());
 
-   /*
-   iTableLoopLabel:
-      TEST_null
-      JE
-      CMP
-      LOAD
-      JNE iTableLoopLabel
-   Found:
-      JMP
-   */
-
-   // Test if iTable == NULL?
-   generateRegRegInstruction(TR::InstOpCode::TESTRegReg(), callNode, scratchReg, scratchReg, cg);
-   generateLabelInstruction(TR::InstOpCode::JE4, callNode, lookupDispatchSnippetLabel, cg);
-
+   generateRegMemInstruction(TR::InstOpCode::LRegMem(), callNode, scratchReg, generateX86MemoryReference(vftReg, (int32_t)fej9->getOffsetOfLastITableFromClassField(), cg()), cg());
+   bool use32BitInterfaceClassPointers = comp()->target().is32Bit();
+   if (comp()->useCompressedPointers() /* actually compressed object headers */)
+      {
+      // The field is 8 bytes, but only 4 matter
+      use32BitInterfaceClassPointers = true;
+      }
    if (use32BitInterfaceClassPointers)
       {
       // The field is 8 bytes, but only 4 matter
       generateMemImmInstruction(TR::InstOpCode::CMP4MemImm4,
                                 callNode,
-                                generateX86MemoryReference(scratchReg, fej9->getOffsetOfInterfaceClassFromITableField(), cg),
+                                generateX86MemoryReference(scratchReg, fej9->getOffsetOfInterfaceClassFromITableField(), cg()),
                                 (int32_t)(intptr_t)declaringClass,
-                                cg,
-                                TR_ClassPointer);
+                                cg());
       }
    else
       {
-      TR_ASSERT_FATAL(comp->target().is64Bit(), "Only 64-bit path should reach here.");
-
-      generateRegImm64Instruction(TR::InstOpCode::MOV8RegImm64, callNode, interfaceClassReg, (intptr_t)declaringClass, cg, TR_ClassPointer);
+      TR_ASSERT(comp()->target().is64Bit(), "Only 64-bit path should reach here.");
+      TR::Register *interfaceClassReg = vtableIndexReg;
+      auto cds = cg()->findOrCreate8ByteConstant(site.getCallNode(), (intptr_t)declaringClass);
+      TR::MemoryReference *interfaceClassAddr = generateX86MemoryReference(cds, cg());
+      generateRegMemInstruction(TR::InstOpCode::LRegMem(), callNode, interfaceClassReg, interfaceClassAddr, cg());
       generateMemRegInstruction(TR::InstOpCode::CMPMemReg(),
                                 callNode,
-                                generateX86MemoryReference(scratchReg, fej9->getOffsetOfInterfaceClassFromITableField(), cg),
-                                interfaceClassReg, cg);
+                                generateX86MemoryReference(scratchReg, fej9->getOffsetOfInterfaceClassFromITableField(), cg()),
+                                interfaceClassReg, cg());
       }
 
-   // scratchReg = iTable->next
-   generateRegMemInstruction(TR::InstOpCode::LRegMem(), callNode, scratchReg, generateX86MemoryReference(scratchReg, offsetof(J9ITable, next), cg), cg);
-   generateLabelInstruction(TR::InstOpCode::JNE4, callNode, iTableLoopLabel, cg);
+   generateLongLabelInstruction(TR::InstOpCode::JNE4, callNode, lookupDispatchSnippetLabel, cg());
+   if (comp()->target().is32Bit())
+      generatePaddingInstruction(3, callNode, cg());
+   TR::Instruction *instr = generateLabelInstruction(TR::InstOpCode::CALLImm4, callNode, lastITableDispatchLabel, vtableIndexRegDeps, cg());
 
-   // Found
-   generateLabelInstruction(TR::InstOpCode::JMP4, callNode, gotoLastITableDispatchLabel, cg);
-   }
+   instr->setNeedsGCMap(site.getPreservedRegisterMask());
 
-static void generateITableEntryLoop3(uint32_t iterations,
-                                       TR::Node *callNode,
-                                       TR::Register *scratchReg,
-                                       TR::Register *vftReg,
-                                       TR::Register *interfaceClassReg,
-                                       TR_OpaqueClassBlock *declaringClass,
-                                       bool use32BitInterfaceClassPointers,
-                                       TR::LabelSymbol *lookupDispatchSnippetLabel,
-                                       TR::LabelSymbol *gotoLastITableDispatchLabel,
-                                       TR::CodeGenerator *cg)
+   instr = generateLabelInstruction(TR::InstOpCode::JMP4, callNode, doneLabel, cg());
+   instr->setNeedsGCMap(site.getPreservedRegisterMask());
 
-   {
-   TR_J9VMBase *fej9 = cg->fej9();
-   TR::Compilation *comp = cg->comp();
+   // 2. Dispatch sequence
+   //
+   TR::Instruction *lastITableDispatchStart = generateLabelInstruction(  TR::InstOpCode::label, callNode, lastITableDispatchLabel, cg());
+   generateRegImmInstruction( TR::InstOpCode::MOV4RegImm4, callNode, vtableIndexReg, fej9->getITableEntryJitVTableOffset(), cg());
+   generateRegMemInstruction( TR::InstOpCode::SUBRegMem(), callNode, vtableIndexReg, generateX86MemoryReference(scratchReg, fej9->convertITableIndexToOffset(itableIndex), cg()), cg());
+   buildVFTCall(site,         TR::InstOpCode::JMPMem, NULL, generateX86MemoryReference(vftReg, vtableIndexReg, 0, cg()));
 
-   TR::RegisterDependencyConditions *deps = generateRegisterDependencyConditions(0, 3, cg);
-   TR::LabelSymbol *iTableLoopLabel = generateLabelSymbol(cg);
+   // Without PIC slots, lastITableTestLabel takes the place of various "first instruction" pointers
+   //
+   if (!site.getFirstPICSlotInstruction())
+      site.setFirstPICSlotInstruction(lastITableTestStart);
+   if (!slotPatchInstruction)
+      slotPatchInstruction = lastITableTestStart;
 
-   deps->addPostCondition(vftReg, TR::RealRegister::NoReg, cg);
-   deps->addPostCondition(scratchReg, TR::RealRegister::NoReg, cg);
-   deps->addPostCondition(interfaceClassReg, TR::RealRegister::NoReg, cg);
+#if 0
+   // Without PIC slots, lastITableDispatchStart takes the place of various "first instruction" pointers
+   //
+   if (!site.getFirstPICSlotInstruction())
+      site.setFirstPICSlotInstruction(lastITableDispatchStart);
+   if (!slotPatchInstruction)
+      slotPatchInstruction = lastITableDispatchStart;
+#endif
 
-   // scratchReg = j9class->iTable
-   generateRegMemInstruction(TR::InstOpCode::LRegMem(), callNode, scratchReg, generateX86MemoryReference(vftReg, offsetof(J9Class, iTable), cg), cg);
+#if 0
+   // Two extra instructions before doneLabel for internal calculations
+   generateLongLabelInstruction(TR::InstOpCode::JNE4, callNode, lookupDispatchSnippetLabel, cg());
+   if (comp()->target().is32Bit())
+      generatePaddingInstruction(3, callNode, cg());
+   generateLabelInstruction(TR::InstOpCode::CALLImm4, callNode, lastITableDispatchLabel, vtableIndexRegDeps, cg());
+#endif
 
-   generateLabelInstruction(TR::InstOpCode::label, callNode, iTableLoopLabel, deps, cg);
-
-   /*
-   iTableLoopLabel:
-      TEST_null
-      JE
-      CMP
-      JE
-      LOAD
-
-      TEST_null
-      JE
-      CMP
-      JE
-      LOAD
-
-      JMP4 iTableLoopLabel
-   */
-   // Unrolled twice
-   generateITableEntryCompareLogic(callNode, scratchReg, interfaceClassReg, declaringClass, use32BitInterfaceClassPointers,
-                                   false, lookupDispatchSnippetLabel, gotoLastITableDispatchLabel, cg);
-
-   generateITableEntryCompareLogic(callNode, scratchReg, interfaceClassReg, declaringClass, use32BitInterfaceClassPointers,
-                                   false, lookupDispatchSnippetLabel, gotoLastITableDispatchLabel, cg);
-
-   generateLabelInstruction(TR::InstOpCode::JMP4, callNode, iTableLoopLabel, cg);
+   cg()->stopUsingRegister(vtableIndexReg);
+   TR::RealRegister::RegNum otherScratchRegister = getProperties().getJ9MethodArgumentRegister(); // scratch reg other than the vtable index reg
+   site.addPostCondition(scratchReg, otherScratchRegister);
+   site.addPostCondition(vftReg, TR::RealRegister::NoReg);
    }
 
 void J9::X86::PrivateLinkage::buildInterfaceDispatchUsingLastITable (TR::X86CallSite &site, int32_t numIPicSlots, TR::X86PICSlot &lastPicSlot, TR::Instruction *&slotPatchInstruction, TR::LabelSymbol *doneLabel, TR::LabelSymbol *lookupDispatchSnippetLabel, TR_OpaqueClassBlock *declaringClass, uintptr_t itableIndex )
@@ -2938,29 +2908,6 @@ void J9::X86::PrivateLinkage::buildInterfaceDispatchUsingLastITable (TR::X86Call
    TR::LabelSymbol *lastITableTestLabel     = generateLabelSymbol(cg());
    TR::LabelSymbol *lastITableDispatchLabel = generateLabelSymbol(cg());
 
-   bool trace = comp()->getOption(TR_TraceCG);
-   char *classSig = NULL;
-   int32_t len = 0;
-   bool isDeclaringClassBiConsumer = false;
-   const char *classBiConsumerName = "java/util/function/BiConsumer";
-
-   if (comp()->getOption(TR_EnableITableFavSuccessPathAfterLastITableCacheCheck) ||
-       trace ||
-       comp()->getOptions()->isAnyVerboseOptionSet())
-      {
-      classSig = TR::Compiler->cls.classSignature_DEPRECATED(comp(), declaringClass, len, comp()->trMemory());
-      }
-
-   if (classSig && strstr(classSig, classBiConsumerName))
-      {
-      isDeclaringClassBiConsumer = true;
-
-      if (comp()->getOptions()->isAnyVerboseOptionSet())
-         TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "%s: DEBUG declaringClass %p %.*s isDeclaringClassBiConsumer 1 %s\n", __FUNCTION__, declaringClass, classSig ? len : 0, classSig ? classSig : "", comp()->signature());
-      if (trace)
-         traceMsg(comp(), "%s: declaringClass %p %.*s isDeclaringClassBiConsumer 1\n", __FUNCTION__, declaringClass, classSig ? len : 0, classSig ? classSig : "");
-      }
-
    if (numIPicSlots >= 1)
       {
       // The last PIC slot looks much like the others
@@ -2971,78 +2918,11 @@ void J9::X86::PrivateLinkage::buildInterfaceDispatchUsingLastITable (TR::X86Call
       }
    else
       {
-#if 0 
-      if (comp()->getOption(TR_EnableITableSkipPICSlotsForThreeMethods2) && isDeclaringClassBiConsumer)
-         {
-         if (trace)
-            traceMsg(comp(), "%s: declaringClass %p %.*s TR_EnableITableSkipPICSlotsForThreeMethods2 1\n", __FUNCTION__, declaringClass, classSig ? len : 0, classSig ? classSig : "");
-
-         // 1. The test sequence
-         //
-         generateRegMemInstruction(TR::InstOpCode::LRegMem(), callNode, scratchReg, generateX86MemoryReference(vftReg, (int32_t)fej9->getOffsetOfLastITableFromClassField(), cg()), cg());
-         bool use32BitInterfaceClassPointers = comp()->target().is32Bit();
-         if (comp()->useCompressedPointers() /* actually compressed object headers */)
-            {
-            // The field is 8 bytes, but only 4 matter
-            use32BitInterfaceClassPointers = true;
-            }
-         if (use32BitInterfaceClassPointers)
-            {
-            // The field is 8 bytes, but only 4 matter
-            generateMemImmInstruction(TR::InstOpCode::CMP4MemImm4,
-                                      callNode,
-                                      generateX86MemoryReference(scratchReg, fej9->getOffsetOfInterfaceClassFromITableField(), cg()),
-                                      (int32_t)(intptr_t)declaringClass,
-                                      cg());
-            }
-         else
-            {
-            TR_ASSERT(comp()->target().is64Bit(), "Only 64-bit path should reach here.");
-            TR::Register *interfaceClassReg = vtableIndexReg;
-            auto cds = cg()->findOrCreate8ByteConstant(site.getCallNode(), (intptr_t)declaringClass);
-            TR::MemoryReference *interfaceClassAddr = generateX86MemoryReference(cds, cg());
-            generateRegMemInstruction(TR::InstOpCode::LRegMem(), callNode, interfaceClassReg, interfaceClassAddr, cg());
-            generateMemRegInstruction(TR::InstOpCode::CMPMemReg(),
-                                      callNode,
-                                      generateX86MemoryReference(scratchReg, fej9->getOffsetOfInterfaceClassFromITableField(), cg()),
-                                      interfaceClassReg, cg());
-            }
-
-         generateLongLabelInstruction(TR::InstOpCode::JNE4, callNode, lookupDispatchSnippetLabel, cg());
-         if (comp()->target().is32Bit())
-            generatePaddingInstruction(3, callNode, cg());
-         generateLabelInstruction(TR::InstOpCode::CALLImm4, callNode, lastITableDispatchLabel, vtableIndexRegDeps, cg());
-#if 0
-         // Jump to the regular last iTable cache check
-         generateLongLabelInstruction(TR::InstOpCode::JNE4, callNode, lastITableTestLabel, cg());
-
-         // Do the dispatch via CALLImm so the return address points at a CALLImm site (required by the j2i thunk convention).
-         if (comp()->target().is32Bit())
-            generatePaddingInstruction(3, callNode, cg());
-         generateLabelInstruction(TR::InstOpCode::CALLImm4, callNode, lastITableDispatchLabel, vtableIndexRegDeps, cg());
-#endif
-
-#if 0 
-         // 2. Dispatch sequence
-         //
-         generateLabelInstruction(TR::InstOpCode::label, callNode, lastITableDispatch2Label, cg());
-
-         generateRegImmInstruction( TR::InstOpCode::MOV4RegImm4, callNode, vtableIndexReg, fej9->getITableEntryJitVTableOffset(), cg());
-
-         generateRegMemInstruction( TR::InstOpCode::SUBRegMem(), callNode, vtableIndexReg, generateX86MemoryReference(scratchReg, fej9->convertITableIndexToOffset(itableIndex), cg()), cg());
-
-         buildVFTCall(site,  TR::InstOpCode::JMPMem, NULL, generateX86MemoryReference(vftReg, vtableIndexReg, 0, cg()));
-#endif
-         }
-      else
-#endif
-         {
-         // The sequence below requires control to flow straight to lastITableTestLabel
-         // TODO: This is lame.  Without IPIC slots, generating this sequence
-         // upside-down is sub-optimal.
-         //
-         generateLabelInstruction(TR::InstOpCode::JMP4, callNode, lastITableTestLabel, cg());
-         }
+      // The sequence below requires control to flow straight to lastITableTestLabel
+      // TODO: This is lame.  Without IPIC slots, generating this sequence
+      // upside-down is sub-optimal.
+      //
+      generateLabelInstruction(TR::InstOpCode::JMP4, callNode, lastITableTestLabel, cg());
       }
 
    TR::Register *vftReg          = site.evaluateVFT();
@@ -3158,9 +3038,35 @@ void J9::X86::PrivateLinkage::buildInterfaceDispatchUsingLastITable (TR::X86Call
                                 interfaceClassReg, cg());
       }
 
+   static char *breakAtLastITableCacheCheck = feGetEnv("TR_BreakAtLastITableCacheCheck");
+
    if (comp()->getOption(TR_DisableITableIterationsAfterLastITableCacheCheck) ||
        (comp()->getOptLevel() <= warm && !comp()->getOption(TR_EnableITableIterationsAfterLastITableCacheCheckAtWarm)))
       {
+      if (breakAtLastITableCacheCheck)
+         {
+         const char *method_1 = "seq$0020flow$003e1/FASTEngine.execute(";
+         const char *method_2 = "seq$0020flow$003e2/FASTEngine.execute(";
+         const char *method_3 = "seq$0020flow$003e3/FASTEngine.execute(";
+         if (strstr(comp()->signature(), method_1) || strstr(comp()->signature(), method_2) || strstr(comp()->signature(), method_3))
+            {
+            char *classSig = NULL;
+            int32_t len = 0;
+            const char *classBiConsumerName = "java/util/function/BiConsumer";
+
+            classSig = TR::Compiler->cls.classSignature_DEPRECATED(comp(), declaringClass, len, comp()->trMemory());
+            if (classSig && strstr(classSig, classBiConsumerName))
+               {
+               if (comp()->getOptions()->isAnyVerboseOptionSet())
+                  TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "%s: DEBUG declaringClass %p %.*s TR_EnableITableSkipPICSlotsForThreeMethods 1 %s\n", __FUNCTION__, declaringClass, len, classSig, comp()->signature());
+               if (comp()->getOption(TR_TraceCG))
+                  traceMsg(comp(), "%s: declaringClass %p %.*s TR_EnableITableSkipPICSlotsForThreeMethods 1. doneLabel %s\n", __FUNCTION__, declaringClass, len, classSig, doneLabel->getName(comp()->getDebug()));
+
+               generateInstruction(TR::InstOpCode::INT3, callNode, cg());
+               }
+            }
+         }
+
       generateLongLabelInstruction(TR::InstOpCode::JNE4, callNode, lookupDispatchSnippetLabel, cg()); // PICBuilder needs this to have a 4-byte offset
       if (comp()->target().is32Bit())
          generatePaddingInstruction(3, callNode, cg());
@@ -3171,6 +3077,12 @@ void J9::X86::PrivateLinkage::buildInterfaceDispatchUsingLastITable (TR::X86Call
       const uint32_t MIN_ITABLE_ITERATIONS = 1;
       const uint32_t MAX_ITABLE_ITERATIONS = 4;
       uint32_t iterations = MAX_ITABLE_ITERATIONS;
+
+      bool trace = comp()->getOption(TR_TraceCG);
+      char *classSig = NULL;
+      int32_t len = 0;
+      if (trace || comp()->getOptions()->isAnyVerboseOptionSet())
+         classSig = TR::Compiler->cls.classSignature_DEPRECATED(comp(), declaringClass, len, comp()->trMemory());
 
       //------------
       // Estimate how many entries to iterate on the iTable by looking at how many
@@ -3221,7 +3133,6 @@ void J9::X86::PrivateLinkage::buildInterfaceDispatchUsingLastITable (TR::X86Call
             {
             if (comp()->getOptions()->isAnyVerboseOptionSet())
                TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "%s: DEBUG-2 declaringClass %p %.*s numImplementers %d. %s\n", __FUNCTION__, declaringClass, classSig ? len : 0, classSig ? classSig : "", numImplementers, comp()->signature());
-
             if (trace)
                traceMsg(comp(), "%s: declaringClass %p %.*s numImplementers %d\n", __FUNCTION__, declaringClass, classSig ? len : 0, classSig ? classSig : "", numImplementers);
             }
@@ -3230,7 +3141,6 @@ void J9::X86::PrivateLinkage::buildInterfaceDispatchUsingLastITable (TR::X86Call
          {
          if (comp()->getOptions()->isAnyVerboseOptionSet())
             TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "%s: DEBUG-3 declaringClass %p %.*s TR_DisableCHOpts 1 %s\n", __FUNCTION__, declaringClass, classSig ? len : 0, classSig ? classSig : "", comp()->signature());
-
          if (trace)
             traceMsg(comp(), "%s: declaringClass %p %.*s TR_DisableCHOpts 1\n", __FUNCTION__, declaringClass, classSig ? len : 0, classSig ? classSig : "");
          }
@@ -3250,32 +3160,7 @@ void J9::X86::PrivateLinkage::buildInterfaceDispatchUsingLastITable (TR::X86Call
       TR::LabelSymbol *iterateITableLabel = generateLabelSymbol(cg());
       TR::LabelSymbol *gotoLastITableDispatchLabel = generateLabelSymbol(cg());
 
-      const char *method_1 = "seq$0020flow$003e1/FASTEngine.execute(";
-      const char *method_2 = "seq$0020flow$003e2/FASTEngine.execute(";
-      const char *method_3 = "seq$0020flow$003e3/FASTEngine.execute(";
-
-      bool favSuccessPathAfterLastITableCacheCheck = false;
-      if (comp()->getOption(TR_EnableITableFavSuccessPathAfterLastITableCacheCheck) &&
-          isDeclaringClassBiConsumer &&
-          (strstr(comp()->signature(), method_1) || strstr(comp()->signature(), method_2) || strstr(comp()->signature(), method_3)))
-         {
-         favSuccessPathAfterLastITableCacheCheck = true;
-         }
-
-      if (favSuccessPathAfterLastITableCacheCheck)
-         {
-         generateLongLabelInstruction(TR::InstOpCode::JE4, callNode, gotoLastITableDispatchLabel, cg());
-         generateLongLabelInstruction(TR::InstOpCode::JMP4, callNode, iterateITableLabel, cg());
-
-         if (trace)
-            traceMsg(comp(), "%s: declaringClass %p %.*s. TR_EnableITableFavSuccessPathAfterLastITableCacheCheck 1\n", __FUNCTION__, declaringClass, classSig ? len : 0, classSig ? classSig : "");
-         if (comp()->getOptions()->isAnyVerboseOptionSet())
-            TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "%s: DEBUG-5 declaringClass %p %.*s TR_EnableITableFavSuccessPathAfterLastITableCacheCheck 1. %s\n", __FUNCTION__, declaringClass, classSig ? len : 0, classSig ? classSig : "", comp()->signature());
-         }
-      else
-         {
-         generateLongLabelInstruction(TR::InstOpCode::JNE4, callNode, iterateITableLabel, cg());
-         }
+      generateLongLabelInstruction(TR::InstOpCode::JNE4, callNode, iterateITableLabel, cg());
 
       // The following sequence of instructions that iterate through the iTable cannot be inserted
       // after the test of the lastITableCache in the mainline code.  The routines in X86PicBuilder,
@@ -3289,9 +3174,7 @@ void J9::X86::PrivateLinkage::buildInterfaceDispatchUsingLastITable (TR::X86Call
       //
       TR_OutlinedInstructionsGenerator og(iterateITableLabel, callNode, cg());
 
-      if (comp()->getOption(TR_EnableLoopITableAfterLastITableCacheCheck2))
-         {
-         generateITableEntryLoop3(iterations,
+      generateITableEntryLoop(iterations,
                                  callNode,
                                  scratchReg,
                                  vftReg,
@@ -3301,33 +3184,6 @@ void J9::X86::PrivateLinkage::buildInterfaceDispatchUsingLastITable (TR::X86Call
                                  lookupDispatchSnippetLabel,
                                  gotoLastITableDispatchLabel,
                                  cg());
-         }
-      else if (comp()->getOption(TR_EnableLoopITableAfterLastITableCacheCheck))
-         {
-         generateITableEntryLoop2(iterations,
-                                 callNode,
-                                 scratchReg,
-                                 vftReg,
-                                 vtableIndexReg,
-                                 declaringClass,
-                                 use32BitInterfaceClassPointers,
-                                 lookupDispatchSnippetLabel,
-                                 gotoLastITableDispatchLabel,
-                                 cg());
-         }
-      else
-         {
-         generateITableEntryLoop(iterations,
-                                 callNode,
-                                 scratchReg,
-                                 vftReg,
-                                 vtableIndexReg,
-                                 declaringClass,
-                                 use32BitInterfaceClassPointers,
-                                 lookupDispatchSnippetLabel,
-                                 gotoLastITableDispatchLabel,
-                                 cg());
-         }
 
 
       //------------ end out-of-line instructions

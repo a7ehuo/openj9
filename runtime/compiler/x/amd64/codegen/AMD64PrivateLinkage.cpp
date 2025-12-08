@@ -1288,41 +1288,31 @@ void J9::X86::AMD64::PrivateLinkage::buildIPIC(TR::X86CallSite &site, TR::LabelS
          }
       }
 
-   char *classSig = NULL;
-   int32_t len = 0;
-   const char *classBiConsumerName = "java/util/function/BiConsumer";
-   if (useLastITableCache &&
-       (comp()->getOption(TR_EnableITableSkipPICSlots) || comp()->getOption(TR_EnableITableSkipPICSlotsForThreeMethods) || comp()->getOption(TR_EnableITableSkipPICSlotsForThreeMethods2)))
+   bool useNewSequence = false;
+
+   if (comp()->getOption(TR_EnableITableSkipPICSlotsForThreeMethods2))
       {
       const char *method_1 = "seq$0020flow$003e1/FASTEngine.execute(";
       const char *method_2 = "seq$0020flow$003e2/FASTEngine.execute(";
       const char *method_3 = "seq$0020flow$003e3/FASTEngine.execute(";
-      bool methodMatched = true;
-
-      if (comp()->getOption(TR_EnableITableSkipPICSlotsForThreeMethods) ||
-          comp()->getOption(TR_EnableITableSkipPICSlotsForThreeMethods2))
+      if (strstr(comp()->signature(), method_1) || strstr(comp()->signature(), method_2) || strstr(comp()->signature(), method_3))
          {
-         if (strstr(comp()->signature(), method_1) || strstr(comp()->signature(), method_2) || strstr(comp()->signature(), method_3))
-            { }
-         else
-            methodMatched = false;
-         }
+         char *classSig = NULL;
+         int32_t len = 0;
+         const char *classBiConsumerName = "java/util/function/BiConsumer";
 
-      if (methodMatched)
-         {
          uintptr_t itableIndex;
          TR_OpaqueClassBlock *declaringClass = site.getSymbolReference()->getOwningMethod(comp())->getResolvedInterfaceMethod(site.getSymbolReference()->getCPIndex(), &itableIndex);
          classSig = declaringClass ? TR::Compiler->cls.classSignature_DEPRECATED(comp(), declaringClass, len, comp()->trMemory()) : NULL;
-
          if (classSig && strstr(classSig, classBiConsumerName))
             {
-            numIPicSlots = 0;
-
-            if (comp()->getOption(TR_TraceCG))
-               traceMsg(comp(), "%s: declaringClass %p %.*s TR_EnableITableSkipPICSlots 1 numIPicSlots 0\n", __FUNCTION__, declaringClass, classSig ? len : 0, classSig ? classSig : "");
-
             if (comp()->getOptions()->isAnyVerboseOptionSet())
-               TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "%s: DEBUG declaringClass %p %.*s TR_EnableITableSkipPICSlots 1 numIPicSlots 0 %s\n", __FUNCTION__, declaringClass, classSig ? len : 0, classSig ? classSig : "", comp()->signature());
+               TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "%s: DEBUG declaringClass %p %.*s TR_EnableITableSkipPICSlotsForThreeMethods2 1 %s\n", __FUNCTION__, declaringClass, len, classSig, comp()->signature());
+            if (comp()->getOption(TR_TraceCG))
+               traceMsg(comp(), "%s: declaringClass %p %.*s TR_EnableITableSkipPICSlotsForThreeMethods2 1. doneLabel %s\n", __FUNCTION__, declaringClass, len, classSig, doneLabel->getName(comp()->getDebug()));
+
+            numIPicSlots = 0;
+            useNewSequence = true;
             }
          }
       }
@@ -1366,7 +1356,10 @@ void J9::X86::AMD64::PrivateLinkage::buildIPIC(TR::X86CallSite &site, TR::LabelS
             method->nameLength(),      method->nameChars(),
             method->signatureLength(), method->signatureChars()))
       {
-      buildInterfaceDispatchUsingLastITable (site, numIPicSlots, lastPicSlot, slotPatchInstruction, doneLabel, lookupDispatchSnippetLabel, declaringClass, itableIndex);
+      if (useNewSequence)
+         buildInterfaceDispatchUsingLastITable2 (site, numIPicSlots, lastPicSlot, slotPatchInstruction, doneLabel, lookupDispatchSnippetLabel, declaringClass, itableIndex);
+      else
+         buildInterfaceDispatchUsingLastITable (site, numIPicSlots, lastPicSlot, slotPatchInstruction, doneLabel, lookupDispatchSnippetLabel, declaringClass, itableIndex);
       }
    else
       {
