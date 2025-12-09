@@ -1440,7 +1440,35 @@ void TR::X86CallSite::computeProfiledTargets()
                addressInfo ? addressInfo->getTopProbability() : -1.0f,
                getMinProfiledCallFrequency());
 
-      if (addressInfo && addressInfo->getTopValue(topValue) > 0 && topValue && !comp()->getPersistentInfo()->isObsoleteClass((void*)topValue, fej9) &&
+      bool skipStaticIPICs = false;
+
+      if (comp()->getOption(TR_EnableITableSkipPICSlots))
+         {
+         const char *method_1 = "seq$0020flow$003e1/FASTEngine.execute(";
+         const char *method_2 = "seq$0020flow$003e2/FASTEngine.execute(";
+         const char *method_3 = "seq$0020flow$003e3/FASTEngine.execute(";
+         if (strstr(comp()->signature(), method_1) || strstr(comp()->signature(), method_2) || strstr(comp()->signature(), method_3))
+            {
+            char *classSig = NULL;
+            int32_t len = 0;
+            const char *classBiConsumerName = "java/util/function/BiConsumer";
+
+            uintptr_t itableIndex;
+            TR_OpaqueClassBlock *declaringClass = getSymbolReference()->getOwningMethod(comp())->getResolvedInterfaceMethod(getSymbolReference()->getCPIndex(), &itableIndex);
+            classSig = declaringClass ? TR::Compiler->cls.classSignature_DEPRECATED(comp(), declaringClass, len, comp()->trMemory()) : NULL;
+            if (classSig && strstr(classSig, classBiConsumerName))
+               {
+               if (comp()->getOptions()->isAnyVerboseOptionSet())
+                  TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "%s: DEBUG declaringClass %p %.*s skipStaticIPICs 1 %s\n", __FUNCTION__, declaringClass, len, classSig, comp()->signature());
+               if (comp()->getOption(TR_TraceCG))
+                  traceMsg(comp(), "%s: declaringClass %p %.*s skipStaticIPICs 1\n", __FUNCTION__, declaringClass, len, classSig);
+
+               skipStaticIPICs = true;
+               }
+            }
+         }
+
+      if (!skipStaticIPICs && addressInfo && addressInfo->getTopValue(topValue) > 0 && topValue && !comp()->getPersistentInfo()->isObsoleteClass((void*)topValue, fej9) &&
           addressInfo->getTopProbability() >= getMinProfiledCallFrequency())
          {
          uint32_t totalFrequency = addressInfo->getTotalFrequency();
