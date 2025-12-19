@@ -118,7 +118,7 @@ struct TR_IPHashedCallSite
 
 
 #define SWITCH_DATA_COUNT 4
-#define NUM_CS_SLOTS 3
+#define NUM_CS_SLOTS 20
 class CallSiteProfileInfo
    {
 public:
