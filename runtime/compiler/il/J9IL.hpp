@@ -79,6 +79,10 @@ class OMR_EXTENSIBLE IL : public OMR::ILConnector
    TR::ILOpCodes opCodeForCompareEquals(TR::DataType dt);
    TR::ILOpCodes opCodeForCompareNotEquals(TR::DataType dt);
 
+   TR::ILOpCodes opCodeForIndirectCompactLoad(TR::DataType dt);
+   TR::ILOpCodes opCodeForIndirectCompactReadBarrier(TR::DataType dt);
+   TR::ILOpCodes opCodeForIndirectCompactStore(TR::DataType dt);
+   TR::ILOpCodes opCodeForIndirectCompactWriteBarrier(TR::DataType dt);
    };
 
 }

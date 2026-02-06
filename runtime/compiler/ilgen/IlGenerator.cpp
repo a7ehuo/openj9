@@ -2010,6 +2010,7 @@ TR_J9ByteCodeIlGenerator::genDLTransfer(TR::Block *firstBlock)
                   else
                      addrNode = TR::Node::create(TR::aiadd, 2, dltBufChild, TR::Node::create(TR::iconst, 0, realOffset));
                   }
+               // TODO-CHECK
                loadNode = TR::Node::createWithSymRef(comp()->il.opCodeForIndirectLoad(dataType), 1, 1, addrNode, shadowSymRef);
                }
             else
@@ -2116,6 +2117,7 @@ TR_J9ByteCodeIlGenerator::genDLTransfer(TR::Block *firstBlock)
                   else
                      addrNode = TR::Node::create(TR::aiadd, 2, dltBufChild, TR::Node::create(TR::iconst, 0, realOffset));
                   }
+               // TODO-CHECK
                loadNode = TR::Node::createWithSymRef(comp()->il.opCodeForIndirectLoad(dataType), 1, 1, addrNode, shadowSymRef);
                }
             else
@@ -2412,12 +2414,14 @@ bool TR_J9ByteCodeIlGenerator::replaceField(TR::Node *node, const char *destClas
     {
     if (node->getOpCode().isLoad())
        {
+       // TODO-CHECK
        TR::Node::recreate(node, comp()->il.opCodeForIndirectLoad(type));
        node->setNumChildren(1);
        }
     else
        {
        TR_ASSERT(node->getOpCode().isStore(), "node can be either a load or a store\n");
+       // TODO-CHECK
        TR::Node::recreate(node, comp()->il.opCodeForIndirectStore(type));
        node->setNumChildren(2);
        node->setChild(1, node->getChild(0));

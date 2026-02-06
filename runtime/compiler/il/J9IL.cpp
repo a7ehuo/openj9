@@ -500,3 +500,36 @@ J9::IL::opCodeForCompareNotEquals(TR::DataType dt)
    return J9::IL::opCodesForCompareNotEquals[dt - TR::FirstJ9Type];
    }
 
+TR::ILOpCodes
+J9::IL::opCodeForIndirectCompactReadBarrier(TR::DataType dt)
+   {
+   return OMR::IL::opCodeForIndirectReadBarrier(dt);
+   }
+
+TR::ILOpCodes
+J9::IL::opCodeForIndirectCompactLoad(TR::DataType dt)
+   {
+   if (dt.isOMRDataType())
+      {
+      return OMR::IL::opCodeForIndirectLoad(dt);
+      }
+
+   return J9::IL::opCodesForIndirectLoad[dt - TR::FirstJ9Type];
+   }
+
+TR::ILOpCodes
+J9::IL::opCodeForIndirectCompactStore(TR::DataType dt)
+   {
+   if (dt.isOMRDataType())
+      {
+      return OMR::IL::opCodeForIndirectStore(dt);
+      }
+
+   return J9::IL::opCodesForIndirectStore[dt - TR::FirstJ9Type];
+   }
+
+TR::ILOpCodes
+J9::IL::opCodeForIndirectCompactWriteBarrier(TR::DataType dt)
+   {
+   return OMR::IL::opCodeForIndirectWriteBarrier(dt);
+   }
