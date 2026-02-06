@@ -2413,6 +2413,41 @@ static bool matchFieldOrStaticName(TR::Compilation *comp, TR::Node *node, const 
    }
 }
 
+static TR::DataType
+storageTypeForCompactFieldFromSig(const char *fieldSig, bool &isBooleanOut, bool &isCharOut)
+   {
+   switch (fieldSig[0])
+      {
+      case 'Z': // boolean
+         isBooleanOut = true;
+         return TR::Int8;
+
+      case 'B': // byte
+         return TR::Int8;
+
+      case 'C': // char
+         isCharOut = true;
+         return TR::Int16;
+
+      case 'S': // short
+         return TR::Int16;
+
+      case 'I': return TR::Int32;
+      case 'J': return TR::Int64;
+      case 'F': return TR::Float;
+      case 'D': return TR::Double;
+
+      // Reference / array descriptors
+      case 'L':
+      case '[':
+         return TR::Address;
+
+      default:
+         TR_ASSERT_FATAL(false, "Unrecognized field type signature %s\n", fieldSig);
+         return TR::NoType;
+      }
+   }
+
 bool TR_J9ByteCodeIlGenerator::replaceField(TR::Node *node, const char *destClass,
                  const char *destFieldName, const char *destFieldSignature,
                  int parmIndex)
@@ -2422,19 +2457,32 @@ bool TR_J9ByteCodeIlGenerator::replaceField(TR::Node *node, const char *destClas
    //function above returns NULL
    if (c == NULL)
       return false;
-   if (performTransformation(comp(), "%ssymref replaced by %s.%s %s in [%p]\n", OPT_DETAILS, destClass, destFieldName, destFieldSignature, node))
+   if (performTransformation(comp(), "%sDEBUG symref replaced by %s.%s %s in [%p]\n", OPT_DETAILS, destClass, destFieldName, destFieldSignature, node))
       {
       //The following code (up to and including the call to initShadowSymbol) has been adapted from
       //TR::SymbolReferenceTable::findOrCreateShadowSymbol
-      uint32_t offset =
-    fej9()->getInstanceFieldOffset(c, destFieldName, destFieldSignature) +
-    fej9()->getObjectHeaderSizeInBytes();
+      uint32_t offset = fej9()->getInstanceFieldOffset(c, destFieldName, destFieldSignature) +
+         fej9()->getObjectHeaderSizeInBytes();
 
       TR::DataType type = node->getDataType();
+      bool isBoolean = false;
+      bool isChar = false;
+      bool processCompactInstanceField = false;
+      //if (type.isIntegral() && comp()->getOption(TR_EnableCompactInstanceField) && !node->getOpCode().isIndirect())
+      if (type.isIntegral() && !comp()->getOption(TR_DisableCompactInstanceField) && !node->getOpCode().isIndirect())
+         {
+         if (TR::Options::isAnyVerboseOptionSet())
+            TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "%s: DEBUG symref replaced by %s.%s %s in [%p] %s\n", __FUNCTION__,
+               destClass, destFieldName, destFieldSignature, node, comp()->signature());
+
+         logprintf(comp()->getOption(TR_TraceILGen), comp()->log(), "%s: DEBUG type %s node %p n%dn %s\n", __FUNCTION__, TR::DataType::getName(type), node, node->getGlobalIndex(), node->getOpCode().getName());
+         processCompactInstanceField = true;
+         type = storageTypeForCompactFieldFromSig(destFieldSignature, isBoolean, isChar);
+         }
+
       TR::Symbol * sym = TR::Symbol::createShadow(trHeapMemory(), type);
       sym->setPrivate();
-      TR::SymbolReference* symRef =
-    new (trHeapMemory()) TR::SymbolReference(comp()->getSymRefTab(), sym,
+      TR::SymbolReference* symRef = new (trHeapMemory()) TR::SymbolReference(comp()->getSymRefTab(), sym,
                    comp()->getMethodSymbol()->getResolvedMethodIndex(),
                    -1, 0);
       comp()->getSymRefTab()->checkUserField(symRef);
@@ -2444,29 +2492,89 @@ bool TR_J9ByteCodeIlGenerator::replaceField(TR::Node *node, const char *destClas
       //we need to change a field reference f to p.f where p is the first parameter (of class DecimalFormat)
       //so we need to make the load/store node an indirect one and add, as a child, an indirect load to load p
       if (!node->getOpCode().isIndirect())
-    {
-    if (node->getOpCode().isLoad())
-       {
-       TR::Node::recreate(node, comp()->il.opCodeForIndirectLoad(type));
-       node->setNumChildren(1);
-       }
-    else
-       {
-       TR_ASSERT(node->getOpCode().isStore(), "node can be either a load or a store\n");
-       TR::Node::recreate(node, comp()->il.opCodeForIndirectStore(type));
-       node->setNumChildren(2);
-       node->setChild(1, node->getChild(0));
-       node->setChild(0, NULL);
-       }
-    ListIterator<TR::ParameterSymbol> parms(&_methodSymbol->getParameterList());
-    TR_ASSERT(parmIndex == 0 || parmIndex == 1, "invalid parmIndex\n");
-    TR::ParameterSymbol * p = parms.getFirst();
-    if (parmIndex == 1)
-       p = parms.getNext();
-    TR::Node* decFormObjLoad = TR::Node::createLoad(node, symRefTab()->findOrCreateAutoSymbol(_methodSymbol, p->getSlot(), p->getDataType()));
-    node->setAndIncChild(0, decFormObjLoad);
-    }
-      node->setSymbolReference(symRef);
+         {
+         bool isLoadWrapped = false;
+         if (node->getOpCode().isLoad())
+            {
+            if (processCompactInstanceField)
+               {
+               TR::Node *loadNode = TR::Node::createWithSymRef(comp()->il.opCodeForIndirectCompactLoad(type), 1, symRef);
+               TR::Node *widenedLoadNode = widenIntLoadForCompactFieldIfRequired(loadNode, symRef, isBoolean, isChar);
+
+               logprintf(comp()->getOption(TR_TraceILGen), comp()->log(), "%s: DEBUG loadNode %p n%dn widenedLoadNode %p n%dn symRef %s\n", __FUNCTION__,
+                  loadNode, loadNode->getGlobalIndex(), widenedLoadNode, widenedLoadNode->getGlobalIndex(), symRef->getName(comp()->getDebug()));
+
+               if (widenedLoadNode == loadNode)
+                  {
+                  TR::Node::recreate(node, loadNode->getOpCodeValue());
+                  node->setNumChildren(1);
+                  node->setChild(0, NULL); // base will be attached below
+                  node->setSymbolReference(symRef);
+                  }
+               else
+                  {
+                  isLoadWrapped = true;
+                  TR::Node::recreate(node, widenedLoadNode->getOpCodeValue());
+                  node->setNumChildren(1);
+                  // Since we are not using widenedLoadNode, explicitly remove loadNode from it
+                  widenedLoadNode->removeChild(0);
+                  node->setAndIncChild(0, loadNode);
+                  // IMPORTANT: wrapper must not carry the field symref
+                  node->setSymbolReference(NULL); // loadNode already has symRef via createWithSymRef
+                  }
+               }
+            else
+               {
+               TR::Node::recreate(node, comp()->il.opCodeForIndirectLoad(type));
+               node->setNumChildren(1);
+               node->setChild(0, NULL); // base attached below
+               }
+            }
+         else
+             {
+             TR_ASSERT(node->getOpCode().isStore(), "node can be either a load or a store\n");
+             if (processCompactInstanceField)
+                {
+                TR::Node *oldValueNode = node->getAndDecChild(0);
+                TR::Node *newValueNode = narrowIntStoreForCompactFieldIfRequired(oldValueNode, symRef, isBoolean);
+
+                logprintf(comp()->getOption(TR_TraceILGen), comp()->log(), "%s: DEBUG oldValueNode %p n%dn newValueNode %p n%dn symRef %s\n", __FUNCTION__,
+                   oldValueNode, oldValueNode->getGlobalIndex(), newValueNode, newValueNode->getGlobalIndex(), symRef->getName(comp()->getDebug()));
+
+                TR::Node::recreate(node, comp()->il.opCodeForIndirectCompactStore(type));
+                node->setNumChildren(2);
+                node->setChild(0, NULL); // base attached below
+                node->setAndIncChild(1, newValueNode);
+                }
+             else
+                {
+                TR::Node::recreate(node, comp()->il.opCodeForIndirectStore(type));
+                node->setNumChildren(2);
+                node->setChild(1, node->getChild(0));
+                node->setChild(0, NULL);
+                }
+             }
+         ListIterator<TR::ParameterSymbol> parms(&_methodSymbol->getParameterList());
+         TR_ASSERT(parmIndex == 0 || parmIndex == 1, "invalid parmIndex\n");
+         TR::ParameterSymbol * p = parms.getFirst();
+         if (parmIndex == 1)
+            p = parms.getNext();
+
+         TR::Node* decFormObjLoad = TR::Node::createLoad(node, symRefTab()->findOrCreateAutoSymbol(_methodSymbol, p->getSlot(), p->getDataType()));
+         if (node->getOpCode().isLoad() && processCompactInstanceField && isLoadWrapped)
+            {
+            TR::Node *firstChild = node->getChild(0);
+            firstChild->setAndIncChild(0, decFormObjLoad);
+            }
+         else
+            {
+            node->setAndIncChild(0, decFormObjLoad);
+            }
+         }
+
+      if (!processCompactInstanceField || node->getOpCode().isStore())
+         node->setSymbolReference(symRef);
+
       return true;
       }
    return false;

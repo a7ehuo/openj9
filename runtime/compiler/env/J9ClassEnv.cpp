@@ -583,9 +583,29 @@ static void addEntryForFieldImpl(TR_VMField *field, TR::TypeLayoutBuilder &tlb, 
       switch(charSignature)
          {
          case 'Z':
+            {
+            //dataType = comp->getOption(TR_EnableCompactInstanceField) ? TR::Int8 : TR::Int32;
+            dataType = !comp->getOption(TR_DisableCompactInstanceField) ? TR::Int8 : TR::Int32;
+            break;
+            }
          case 'B':
+            {
+            //dataType = comp->getOption(TR_EnableCompactInstanceField) ? TR::Int8 : TR::Int32;
+            dataType = !comp->getOption(TR_DisableCompactInstanceField) ? TR::Int8 : TR::Int32;
+            break;
+            }
          case 'C':
+            {
+            //dataType = comp->getOption(TR_EnableCompactInstanceField) ? TR::Int16 : TR::Int32;
+            dataType = !comp->getOption(TR_DisableCompactInstanceField) ? TR::Int16 : TR::Int32;
+            break;
+            }
          case 'S':
+            {
+            //dataType = comp->getOption(TR_EnableCompactInstanceField) ? TR::Int16 : TR::Int32;
+            dataType = !comp->getOption(TR_DisableCompactInstanceField) ? TR::Int16 : TR::Int32;
+            break;
+            }
          case 'I':
             {
             dataType = TR::Int32;
@@ -626,8 +646,8 @@ static void addEntryForFieldImpl(TR_VMField *field, TR::TypeLayoutBuilder &tlb, 
       memcpy(fieldSignature, signature, sigLen);
       fieldSignature[sigLen] = '\0';
 
-      logprintf(trace, log, "type layout definingClass %p field: %s signature: %s field offset: %d offsetBase %d\n",
-            definingClass, fieldName, fieldSignature, field->offset, offsetBase);
+      logprintf(trace, log, "type layout definingClass %p field: %s signature: %s dataType: %s fieldOffset: %d offsetBase: %d\n",
+            definingClass, fieldName, fieldSignature, TR::DataType::getName(dataType), field->offset, offsetBase);
       tlb.add(TR::TypeLayoutEntry(dataType, offset, fieldName, isVolatile, isPrivate, isFinal, isFieldNullRestricted, fieldSignature));
       }
    }

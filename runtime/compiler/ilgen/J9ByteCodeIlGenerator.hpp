@@ -237,6 +237,9 @@ private:
    void         loadArrayElement(TR::DataType dt, TR::ILOpCodes opCode, bool checks = true, bool mayBeValueType = true);
    void         loadMonitorArg();
 
+   TR::Node*    widenIntLoadForCompactFieldIfRequired(TR::Node *value, TR::SymbolReference *symRef, bool isFieldBoolean = false, bool isFieldChar = false);
+   TR::Node*    narrowIntStoreForCompactFieldIfRequired(TR::Node *value, TR::SymbolReference *symRef, bool isFieldBoolean = false);
+
    void         storeInstance(int32_t);
    void         storeInstance(TR::SymbolReference *);
    void         storeFlattenableInstance(int32_t);

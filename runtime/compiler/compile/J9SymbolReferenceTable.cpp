@@ -1835,8 +1835,15 @@ J9::SymbolReferenceTable::isFieldTypeBool(TR::SymbolReference *symRef)
    {
    int32_t len;
    const char *fieldSignature = symRef->getOwningMethod(comp())->fieldSignatureChars(symRef->getCPIndex(), len);
-   dumpOptDetails(comp(), "got field signature as %.*s\n", len, fieldSignature);
-   return isSignatureTypeBool(fieldSignature, len);
+   dumpOptDetails(comp(), "got field signature as %.*s getName: %s getRecognizedField %d\n", len, fieldSignature, symRef->getSymbol()->getName(), symRef->getSymbol()->getRecognizedField());
+
+   if (fieldSignature)
+      return isSignatureTypeBool(fieldSignature, len);
+
+   if (symRef->getSymbol()->getName() && (strncmp(symRef->getSymbol()->getName(), "java/lang/Boolean.value Z", 25) == 0))
+      return true;
+
+   return false;
    }
 
 bool
@@ -1853,8 +1860,15 @@ J9::SymbolReferenceTable::isFieldTypeChar(TR::SymbolReference *symRef)
    {
    int32_t len;
    const char *fieldSignature = symRef->getOwningMethod(comp())->fieldSignatureChars(symRef->getCPIndex(), len);
-   dumpOptDetails(comp(), "got field signature as %.*s\n", len, fieldSignature);
-   return isSignatureTypeChar(fieldSignature, len);
+   dumpOptDetails(comp(), "got field signature as %.*s getName: %s getRecognizedField %d\n", len, fieldSignature, symRef->getSymbol()->getName(), symRef->getSymbol()->getRecognizedField());
+
+   if (fieldSignature)
+      return isSignatureTypeChar(fieldSignature, len);
+
+   if (symRef->getSymbol()->getName() && (strncmp(symRef->getSymbol()->getName(), "java/lang/Character.value C", 27) == 0))
+      return true;
+
+   return false;
    }
 
 bool
