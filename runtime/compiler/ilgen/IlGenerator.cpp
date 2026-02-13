@@ -2422,7 +2422,7 @@ bool TR_J9ByteCodeIlGenerator::replaceField(TR::Node *node, const char *destClas
    //function above returns NULL
    if (c == NULL)
       return false;
-   if (performTransformation(comp(), "%ssymref replaced by %s.%s %s in [%p]\n", OPT_DETAILS, destClass, destFieldName, destFieldSignature, node))
+   if (performTransformation(comp(), "%sDEBUG symref replaced by %s.%s %s in [%p]\n", OPT_DETAILS, destClass, destFieldName, destFieldSignature, node))
       {
       //The following code (up to and including the call to initShadowSymbol) has been adapted from
       //TR::SymbolReferenceTable::findOrCreateShadowSymbol
@@ -2433,8 +2433,14 @@ bool TR_J9ByteCodeIlGenerator::replaceField(TR::Node *node, const char *destClas
       bool isBoolean = false;
       bool isChar = false;
       bool processCompactInstanceField = false;
-      if (type.isIntegral() && comp()->getOption(TR_EnableCompactInstanceField))
+      //if (type.isIntegral() && comp()->getOption(TR_EnableCompactInstanceField) && !node->getOpCode().isIndirect())
+      if (type.isIntegral() && !node->getOpCode().isIndirect())
          {
+         if (TR::Options::isAnyVerboseOptionSet())
+            TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "%s: DEBUG symref replaced by %s.%s %s in [%p] %s\n", __FUNCTION__,
+               destClass, destFieldName, destFieldSignature, node, comp()->signature());
+
+         logprintf(comp()->getOption(TR_TraceILGen), comp()->log(), "%s: DEBUG type %s node %p n%dn %s\n", __FUNCTION__, TR::DataType::getName(type), node, node->getGlobalIndex(), node->getOpCode().getName());
          processCompactInstanceField = true;
          type = storageTypeForCompactFieldFromSig(destFieldSignature, isBoolean, isChar);
          }
@@ -2459,6 +2465,9 @@ bool TR_J9ByteCodeIlGenerator::replaceField(TR::Node *node, const char *destClas
                {
                TR::Node *loadNode = TR::Node::createWithSymRef(comp()->il.opCodeForIndirectCompactLoad(type), 1, symRef);
                TR::Node *widenedLoadNode = widenIntLoadForCompactFieldIfRequired(loadNode, symRef, isBoolean, isChar);
+
+               logprintf(comp()->getOption(TR_TraceILGen), comp()->log(), "%s: DEBUG loadNode %p n%dn widenedLoadNode %p n%dn symRef %s\n", __FUNCTION__,
+                  loadNode, loadNode->getGlobalIndex(), widenedLoadNode, widenedLoadNode->getGlobalIndex(), symRef->getName(comp()->getDebug()));
 
                if (widenedLoadNode == loadNode)
                   {
@@ -2493,6 +2502,9 @@ bool TR_J9ByteCodeIlGenerator::replaceField(TR::Node *node, const char *destClas
                 {
                 TR::Node *oldValueNode = node->getAndDecChild(0);
                 TR::Node *newValueNode = narrowIntStoreForCompactFieldIfRequired(oldValueNode, symRef, isBoolean);
+
+                logprintf(comp()->getOption(TR_TraceILGen), comp()->log(), "%s: DEBUG oldValueNode %p n%dn newValueNode %p n%dn symRef %s\n", __FUNCTION__,
+                   oldValueNode, oldValueNode->getGlobalIndex(), newValueNode, newValueNode->getGlobalIndex(), symRef->getName(comp()->getDebug()));
 
                 TR::Node::recreate(node, comp()->il.opCodeForIndirectCompactStore(type));
                 node->setNumChildren(2);
