@@ -5206,6 +5206,7 @@ TR_J9ByteCodeIlGenerator::loadInstance(TR::SymbolReference * symRef)
 
    TR::ILOpCodes op;
    //if (type.isIntegral() && comp()->getOption(TR_EnableCompactInstanceField))
+   if (type.isIntegral() && !comp()->getOption(TR_DisableCompactInstanceField))
    if (type.isIntegral())
       op = _generateReadBarriersForFieldWatch ? comp()->il.opCodeForIndirectCompactReadBarrier(type): comp()->il.opCodeForIndirectCompactLoad(type);
    else
@@ -5268,7 +5269,7 @@ TR_J9ByteCodeIlGenerator::loadInstance(TR::SymbolReference * symRef)
       }
 
    //if (type.isIntegral() && comp()->getOption(TR_EnableCompactInstanceField))
-   if (type.isIntegral())
+   if (type.isIntegral() && !comp()->getOption(TR_DisableCompactInstanceField))
       {
       dummyLoad = widenIntLoadForCompactFieldIfRequired(dummyLoad, symRef);
       if (treeTopNode)
@@ -5744,9 +5745,13 @@ TR_J9ByteCodeIlGenerator::loadFromCP(TR::DataType type, int32_t cpIndex)
    OMR::Logger *log = comp()->log();
    bool trace = comp()->getOption(TR_TraceILGen);
 
+   logprintf(comp()->getOption(TR_TraceILGen), comp()->log(), "%s: DEBUG type %s cpIndex %d\n", __FUNCTION__, TR::DataType::getName(type), cpIndex);
+
    static char *floatInCP = feGetEnv("TR_FloatInCP");
    if (type == TR::NoType)
       type = method()->getLDCType(cpIndex);
+
+   logprintf(comp()->getOption(TR_TraceILGen), comp()->log(), "%s: DEBUG type %s\n", __FUNCTION__, TR::DataType::getName(type));
    switch (type)
       {
       case TR::Int32:    loadConstant(TR::iconst, (int32_t)method()->intConstant(cpIndex)); break;
@@ -5778,6 +5783,7 @@ TR_J9ByteCodeIlGenerator::loadFromCP(TR::DataType type, int32_t cpIndex)
             char* returnTypeUtf8Data = (char *)J9UTF8_DATA(returnTypeUtf8);
             bool isCondyPrimitive = (1 == returnTypeUtf8Length);
 
+            logprintf(comp()->getOption(TR_TraceILGen), comp()->log(), "%s: DEBUG isCondyPrimitive %d isCondyUnresolved %d\n", __FUNCTION__, isCondyPrimitive, isCondyUnresolved);
             // Use aconst for null object
             if (!isCondyPrimitive && !isCondyUnresolved)
                {
@@ -5879,6 +5885,8 @@ TR_J9ByteCodeIlGenerator::loadFromCP(TR::DataType type, int32_t cpIndex)
                // Generate constant for resolved primitive condy.
                if(!isCondyUnresolved)
                   {
+                  logprintf(comp()->getOption(TR_TraceILGen), comp()->log(), "%s: DEBUG valueOffset %d\n", __FUNCTION__, valueOffset);
+
                   TR::VMAccessCriticalSection primitiveCondyCriticalSection(comp()->fej9(),
                                                             TR::VMAccessCriticalSection::tryToAcquireVMAccess,
                                                             comp());
@@ -5890,11 +5898,52 @@ TR_J9ByteCodeIlGenerator::loadFromCP(TR::DataType type, int32_t cpIndex)
                      switch (returnTypeUtf8Data[0])
                         {
                         case 'I':
-                        case 'Z':
-                        case 'C':
-                        case 'S':
-                        case 'B':
                            loadConstant(TR::iconst, *(int32_t*)(obj+valueOffset));
+                           break;
+                        case 'Z':
+                           //if (comp()->getOption(TR_EnableCompactInstanceField))
+                           if (!comp()->getOption(TR_DisableCompactInstanceField))
+                              {
+                              uint8_t raw;
+                              memcpy(&raw, (void*)(obj + valueOffset), sizeof(raw));
+                              // Canonicalize: any non-zero is true, push 0/1.
+                              loadConstant(TR::iconst, raw ? 1 : 0);
+                              }
+                           else
+                              loadConstant(TR::iconst, *(int32_t*)(obj+valueOffset));
+                           break;
+                        case 'C':
+                           //if (comp()->getOption(TR_EnableCompactInstanceField))
+                           if (!comp()->getOption(TR_DisableCompactInstanceField))
+                              {
+                              uint16_t raw;
+                              memcpy(&raw, (void*)(obj + valueOffset), sizeof(raw));
+                              loadConstant(TR::iconst, (int32_t)raw); // zero-extend
+                              }
+                           else
+                              loadConstant(TR::iconst, *(int32_t*)(obj+valueOffset));
+                           break;
+                        case 'S':
+                           //if (comp()->getOption(TR_EnableCompactInstanceField))
+                           if (!comp()->getOption(TR_DisableCompactInstanceField))
+                              {
+                              int16_t raw;
+                              memcpy(&raw, (void*)(obj + valueOffset), sizeof(raw));
+                              loadConstant(TR::iconst, (int32_t)raw); // sign-extend
+                              }
+                           else
+                              loadConstant(TR::iconst, *(int32_t*)(obj+valueOffset));
+                           break;
+                        case 'B':
+                           //if (comp()->getOption(TR_EnableCompactInstanceField))
+                           if (!comp()->getOption(TR_DisableCompactInstanceField))
+                              {
+                              int8_t raw;
+                              memcpy(&raw, (void*)(obj + valueOffset), sizeof(raw));
+                              loadConstant(TR::iconst, (int32_t)raw); // sign-extend
+                              }
+                           else
+                              loadConstant(TR::iconst, *(int32_t*)(obj+valueOffset));
                            break;
                         case 'J':
                            loadConstant(TR::lconst, *(int64_t*)(obj+valueOffset));
@@ -5971,7 +6020,7 @@ TR_J9ByteCodeIlGenerator::loadFromCP(TR::DataType type, int32_t cpIndex)
                      recogFieldName = "java/lang/Boolean.value Z";
                      valueRecogField = TR::Symbol::Java_lang_Boolean_value;
                      //dt = comp()->getOption(TR_EnableCompactInstanceField) ? TR::Int8 : TR::Int32;
-                     dt = TR::Int8;
+                     dt = !comp()->getOption(TR_DisableCompactInstanceField) ? TR::Int8 : TR::Int32;
                      isFieldBoolean = true;
                      break;
                   default:
@@ -5983,7 +6032,7 @@ TR_J9ByteCodeIlGenerator::loadFromCP(TR::DataType type, int32_t cpIndex)
 
                TR::Node *primitiveValueNode = NULL;
                //if (dt.isIntegral() && comp()->getOption(TR_EnableCompactInstanceField))
-               if (dt.isIntegral())
+               if (dt.isIntegral() && !comp()->getOption(TR_DisableCompactInstanceField))
                   {
                   logprintf(comp()->getOption(TR_TraceILGen), comp()->log(), "%s: DEBUG dt %s isFieldBoolean %d isFieldChar %d recogFieldName %s\n", __FUNCTION__,
                      TR::DataType::getName(dt), isFieldBoolean, isFieldChar, recogFieldName);
@@ -6871,7 +6920,7 @@ TR_J9ByteCodeIlGenerator::storeInstance(TR::SymbolReference * symRef)
    //
    TR::Node * node = NULL;
    //if (type.isIntegral() && comp()->getOption(TR_EnableCompactInstanceField))
-   if (type.isIntegral())
+   if (type.isIntegral() && !comp()->getOption(TR_DisableCompactInstanceField))
       {
       value = narrowIntStoreForCompactFieldIfRequired(value, symRef);
       if (_generateWriteBarriersForFieldWatch)

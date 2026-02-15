@@ -2434,7 +2434,7 @@ bool TR_J9ByteCodeIlGenerator::replaceField(TR::Node *node, const char *destClas
       bool isChar = false;
       bool processCompactInstanceField = false;
       //if (type.isIntegral() && comp()->getOption(TR_EnableCompactInstanceField) && !node->getOpCode().isIndirect())
-      if (type.isIntegral() && !node->getOpCode().isIndirect())
+      if (type.isIntegral() && !comp()->getOption(TR_DisableCompactInstanceField) && !node->getOpCode().isIndirect())
          {
          if (TR::Options::isAnyVerboseOptionSet())
             TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "%s: DEBUG symref replaced by %s.%s %s in [%p] %s\n", __FUNCTION__,

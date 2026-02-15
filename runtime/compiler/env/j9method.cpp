@@ -6533,6 +6533,8 @@ TR_ResolvedJ9Method::getLDCType(I_32 cpIndex)
    {
    TR_ASSERT(cpIndex != -1, "cpIndex shouldn't be -1");
    UDATA cpType = J9_CP_TYPE(J9ROMCLASS_CPSHAPEDESCRIPTION(romClassPtr()), cpIndex);
+   TR::Compilation *comp = TR::comp();
+   logprintf(comp->getOption(TR_TraceILGen), comp->log(), "%s: DEBUG cpType %d cpIndex %d\n", __FUNCTION__, cpType, cpIndex);
    return cpType2trType(cpType);
    }
 

@@ -585,24 +585,28 @@ static void addEntryForFieldImpl(TR_VMField *field, TR::TypeLayoutBuilder &tlb, 
          case 'Z':
             {
             //dataType = comp->getOption(TR_EnableCompactInstanceField) ? TR::Int8 : TR::Int32;
+            dataType = !comp->getOption(TR_DisableCompactInstanceField) ? TR::Int8 : TR::Int32;
             dataType = TR::Int8;
             break;
             }
          case 'B':
             {
             //dataType = comp->getOption(TR_EnableCompactInstanceField) ? TR::Int8 : TR::Int32;
+            dataType = !comp->getOption(TR_DisableCompactInstanceField) ? TR::Int8 : TR::Int32;
             dataType = TR::Int8;
             break;
             }
          case 'C':
             {
             //dataType = comp->getOption(TR_EnableCompactInstanceField) ? TR::Int16 : TR::Int32;
+            dataType = !comp->getOption(TR_DisableCompactInstanceField) ? TR::Int16 : TR::Int32;
             dataType = TR::Int16;
             break;
             }
          case 'S':
             {
             //dataType = comp->getOption(TR_EnableCompactInstanceField) ? TR::Int16 : TR::Int32;
+            dataType = !comp->getOption(TR_DisableCompactInstanceField) ? TR::Int16 : TR::Int32;
             dataType = TR::Int16;
             break;
             }
