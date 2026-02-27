@@ -298,6 +298,35 @@ void TR_JProfilingValue::performOnNode(TR::Node *node, TR::TreeTop *cursor, TR_B
         performOnNode(node->getChild(i), cursor, alreadyProfiledValues, checklist);
 }
 
+// Identify a direct-load of the MethodMetaData symbol named "ExceptionMeta"
+static bool isExceptionMetaLoad(TR::Node *node)
+{
+    if (node
+         && node->getOpCode().isLoadDirect()
+         && node->getSymbolReference()
+         && node->getSymbolReference()->getSymbol()
+         && node->getSymbolReference()->getSymbol()->isMethodMetaData()
+         && node->getSymbolReference()->getSymbol()->getName()
+         && !strcmp(node->getSymbolReference()->getSymbol()->getName(), "ExceptionMeta"))
+        return true;
+    return false;
+}
+
+static TR::Node * findNearestStoreForValue(TR::TreeTop *cursor, TR::Node *value)
+{
+    for (TR::TreeTop *tt = cursor->getPrevTreeTop();
+         tt && (tt->getNode()->getOpCodeValue() != TR::BBStart
+               || tt->getNode()->getBlock()->isExtensionOfPreviousBlock());
+         tt = tt->getPrevTreeTop()) {
+
+        TR::Node *ttNode = tt->getNode();
+        if (ttNode->getOpCode().isStoreDirectOrReg() && ttNode->getFirstChild() == value) {
+            return ttNode;
+        }
+    }
+    return NULL;
+}
+
 void TR_JProfilingValue::lowerCalls()
 {
     TR::TreeTop *cursor = comp()->getStartTree();
@@ -357,6 +386,59 @@ void TR_JProfilingValue::lowerCalls()
                     optDetailString(), child->getGlobalIndex());
                 // Extract the arguments and add the profiling trees
                 TR::Node *value = child->getFirstChild();
+
+                // ExceptionMeta is commonly copied to a preserved location and then it is cleared to NULL.
+                // If we build profiling trees from the raw ExceptionMeta load, later rematerialization may
+                // reload NULL. Prefer profiling the preserved copy when we can identify it.
+                static const char *disableFixInlowerCalls = feGetEnv("TR_DebugDisableFixInlowerCalls");
+
+                if (isExceptionMetaLoad(value) && !disableFixInlowerCalls) {
+                    dumpOptDetails(comp(), "%s %s: DEBUG value n%dn\n", optDetailString(), __FUNCTION__, value->getGlobalIndex());
+
+                    TR::Node *preservingStore = findNearestStoreForValue(cursor, value);
+
+                    dumpOptDetails(comp(), "%s %s: DEBUG preservingStore n%dn\n", optDetailString(), __FUNCTION__, preservingStore ? preservingStore->getGlobalIndex() : -1);
+
+                    if (preservingStore
+                        && preservingStore->getOpCode().isStoreDirect()
+                        && preservingStore->getOpCode().hasSymbolReference()
+                        && preservingStore->getSymbolReference()->getSymbol()
+                        && !preservingStore->getSymbolReference()->getSymbol()->isMethodMetaData()) {
+                        // Profile the preserved variable (e.g. decl/#410), not the MethodMetaData slot.
+                        value = TR::Node::createLoad(value, preservingStore->getSymbolReference());
+                        dumpOptDetails(comp(), "%s %s: DEBUG preservingStore n%dn value n%dn\n", optDetailString(), __FUNCTION__, preservingStore->getGlobalIndex(), value->getGlobalIndex());
+                    } else {
+                        // If the preserved copy is held only in a register store (post-GRA) or we could not
+                        // find a stable symbol, spill to a temporary before lowering and profile the temporary.
+                        TR::SymbolReference *tmpSymRef = NULL;
+                        // Default spill source is the original value
+                        TR::Node *spillSource = value;
+                        // If we found a preserving store in a register (post-GRA), spill from the register value
+                        // rather than reloading ExceptionMeta from MethodMetaData (which may already be NULL).
+                        if (preservingStore && preservingStore->getOpCode().isStoreReg()) {
+
+                            TR::Node *regLoad = TR::Node::create(value, comp()->il.opCodeForRegisterLoad(value->getDataType()));
+                            regLoad->setRegLoadStoreSymbolReference(preservingStore->getRegLoadStoreSymbolReference());
+                            regLoad->setGlobalRegisterNumber(preservingStore->getGlobalRegisterNumber());
+                            if (value->requiresRegisterPair(comp())) {
+                                regLoad->setHighGlobalRegisterNumber(preservingStore->getHighGlobalRegisterNumber());
+                            }
+
+                            spillSource = regLoad;
+                            dumpOptDetails(comp(), "%s %s: DEBUG preservingStore n%dn spillSource n%dn\n", optDetailString(), __FUNCTION__, preservingStore->getGlobalIndex(), spillSource->getGlobalIndex());
+                        }
+
+                        TR::TreeTop *storeTT = TR::TreeTop::create(comp(), storeNode(comp(), spillSource, tmpSymRef));
+                        cursor->insertBefore(storeTT);
+
+                        dumpOptDetails(comp(), "%s %s: DEBUG insert storeTT n%dn value n%dn\n", optDetailString(), __FUNCTION__, storeTT->getNode()->getGlobalIndex(), value->getGlobalIndex());
+
+                        value = TR::Node::createLoad(value, tmpSymRef);
+
+                        dumpOptDetails(comp(), "%s %s: DEBUG value n%dn\n", optDetailString(), __FUNCTION__, value->getGlobalIndex());
+                    }
+                }
+
                 TR_AbstractHashTableProfilerInfo *table
                     = (TR_AbstractHashTableProfilerInfo *)child->getSecondChild()->getAddress();
                 bool needNullTest = comp()->getSymRefTab()->isNonHelper(child->getSymbolReference(),
@@ -549,6 +631,16 @@ bool TR_JProfilingValue::addProfilingTrees(TR::Compilation *comp, TR::TreeTop *i
             break;
         }
     }
+
+    // If profiling value is still the raw ExceptionMeta load, scan backwards for the preserving store
+    // because it may appear before the profiling placeholder in the catch block.
+    if (profilingValue == value && isExceptionMetaLoad(value)) {
+        logprintf(trace, log, "%s: DEBUG profilingValue == value value n%dn\n", __FUNCTION__, value->getGlobalIndex());
+
+        TR::Node *preservingStore = findNearestStoreForValue(insertionPoint, value);
+        profilingValue = preservingStore ? preservingStore : profilingValue;
+    }
+
     logprintf(trace, log, "\t\t\tProfiling value n%dn\n", profilingValue->getGlobalIndex());
 
     TR::Block *iter = originalBlock;
@@ -728,8 +820,11 @@ bool TR_JProfilingValue::addProfilingTrees(TR::Compilation *comp, TR::TreeTop *i
     if (valueChildOfHelperCall == NULL) {
         TR::SymbolReference *storedValueSymRef = NULL;
         if (profilingValue->getOpCode().isStoreDirect()
-            || (profilingValue->getOpCode().isLoadDirect() && !profilingValue->getOpCode().isLoadConst())) {
+            || (profilingValue->getOpCode().isLoadDirect()
+                && !profilingValue->getOpCode().isLoadConst()
+                && !isExceptionMetaLoad(profilingValue))) {
             storedValueSymRef = profilingValue->getSymbolReference();
+            logprintf(trace, log, "%s: DEBUG storedValueSymRef #%d\n", __FUNCTION__, storedValueSymRef->getReferenceNumber());
         } else {
             logprintf(trace, log, "\t\t\tNode n%dn needs to be stored on temp slot\n",
                 profilingValue->getGlobalIndex());
@@ -737,6 +832,7 @@ bool TR_JProfilingValue::addProfilingTrees(TR::Compilation *comp, TR::TreeTop *i
             // of quick test
             TR::TreeTop *storeValue = TR::TreeTop::create(comp, quickTestBlock->getEntry(),
                 storeNode(comp, profilingValue, storedValueSymRef));
+            logprintf(trace, log, "%s: DEBUG profilingValue n%dn is stored on temp slot storeValue n%dn\n", __FUNCTION__, profilingValue->getGlobalIndex(), storeValue->getNode()->getGlobalIndex());
         }
         valueChildOfHelperCall = TR::Node::createLoad(value, storedValueSymRef);
     }
