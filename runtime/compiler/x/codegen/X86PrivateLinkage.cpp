@@ -44,7 +44,6 @@
 #include "env/StackMemoryRegion.hpp"
 #include "env/jittypes.h"
 #include "env/VMJ9.h"
-#include "env/VerboseLog.hpp"
 #include "il/DataTypes.hpp"
 #include "il/Node.hpp"
 #include "il/Node_inlines.hpp"
@@ -2449,33 +2448,43 @@ static void generateITableEntryLoop(uint32_t iterations, TR::Node *callNode, TR:
 }
 
 static void generateLastITableDispatch(TR::Node *callNode, TR::LabelSymbol *lookupDispatchSnippetLabel,
-     TR::LabelSymbol *lastITableDispatchLabel, TR::RegisterDependencyConditions *vtableIndexRegDeps, TR::Compilation *comp, TR::CodeGenerator *cg)
+     TR::LabelSymbol *lastITableDispatchLabel, TR::LabelSymbol *gotoLastITableDispatchLabel, TR::RegisterDependencyConditions *vtableIndexRegDeps, TR::Compilation *comp, TR::CodeGenerator *cg)
 {
+    // X86PicBuilder routines (for example, resolveIPicClass) expect the last JNE before the
+    // done label to jump to the lookup snippet.
     generateLongLabelInstruction(TR::InstOpCode::JNE4, callNode, lookupDispatchSnippetLabel, cg); // PICBuilder needs this to have a 4-byte offset
+
+    if (gotoLastITableDispatchLabel)
+        generateLabelInstruction(TR::InstOpCode::label, callNode, gotoLastITableDispatchLabel, cg);
+
     if (comp->target().is32Bit())
         generatePaddingInstruction(3, callNode, cg);
     generateLabelInstruction(TR::InstOpCode::CALLImm4, callNode, lastITableDispatchLabel, vtableIndexRegDeps, cg);
 }
 
-static uint32_t findLikelyMaxNoOfIFsImplementersImplement(TR::X86CallSite &site, TR_OpaqueClassBlock *declaringClass, const uint32_t MAX_ITABLE_ITERATIONS, TR_J9VMBase *fej9, TR::Compilation *comp)
+static uint32_t determineNumOfITableIterations(TR::X86CallSite &site, TR_OpaqueClassBlock *declaringClass, const uint32_t MAX_ITABLE_ITERATIONS, TR_J9VMBase *fej9, TR::Compilation *comp)
 {
     bool trace = comp->getOption(TR_TraceCG);
     const uint32_t MIN_ITABLE_ITERATIONS = 1;
-    uint32_t returnMaxNoInterfaces = MIN_ITABLE_ITERATIONS;
 
-    //------------
-    // Estimate how many entries to iterate on the iTable by looking at how many
-    // interfaces the receiver class might implement:
-    // First finds all possible implementers of the declaring interface class.
-    // For each implementer, look at how many interfaces an implementer
-    // implements. We take the max number of the interfaces the implementer
-    // implements, which is eventually capped at MAX_ITABLE_ITERATIONS.
+    // If CHTable is disabled, or if querying CHTable does not produce a usable
+    // result, return the minimum number of iTable iterations.
+    uint32_t returnNumOfIterations = MIN_ITABLE_ITERATIONS;
+
+    // Estimate how many iTable entries to iterate over by examining how many
+    // interfaces potential implementers of the declaring interface may
+    // implement.
     //
-    // By default or if CHTable is disabled, the number of iterations is
-    // capped at MAX_ITABLE_ITERATIONS.
+    // First, find candidate implementers of the declaring interface class.
+    // Then, for each candidate implementer, compute how many interfaces it
+    // implements. The maximum value observed is capped at
+    // MAX_ITABLE_ITERATIONS.
+    //
+    // By design, the default behavior (including the CH-disabled case) is to
+    // use MIN_ITABLE_ITERATIONS.
     //
     if (!comp->getOption(TR_DisableCHOpts)) {
-        uint32_t MAX_IMPLEMENTERS_TO_EVALUATE = 30;
+        const uint32_t MAX_IMPLEMENTERS_TO_EVALUATE = 30;
 
         TR_ResolvedMethod **implArray
             = new (comp->trStackMemory()) TR_ResolvedMethod *[MAX_IMPLEMENTERS_TO_EVALUATE + 1];
@@ -2483,57 +2492,41 @@ static uint32_t findLikelyMaxNoOfIFsImplementersImplement(TR::X86CallSite &site,
         TR::SymbolReference *methodSymRef = site.getSymbolReference();
         int32_t cpIndex = methodSymRef->getCPIndex();
 
-        // Find out how many implementers are for the declaring interface class
+        // Determine how many implementers exist for the declaring interface class.
         int32_t numImplementers = chTable->findnInterfaceImplementers(declaringClass,
             MAX_IMPLEMENTERS_TO_EVALUATE + 1, implArray, cpIndex, methodSymRef->getOwningMethod(comp), comp);
 
-        if (numImplementers > 0) {
-            // Find out how many interfaces each implementer implements
+        // Check that numImplementers <= MAX_IMPLEMENTERS_TO_EVALUATE before
+        // reading implArray. According to collectImplementorsCapped, a return
+        // value greater than maxCount indicates that collection failed, and
+        // implArray may contain invalid data.
+        //
+        if ((numImplementers != 0) && (numImplementers <= MAX_IMPLEMENTERS_TO_EVALUATE)) {
             uint32_t maxInterfaces = MIN_ITABLE_ITERATIONS;
 
+            // Determine how many interfaces each implementer implements.
             for (int32_t i = 0; i < numImplementers; ++i) {
                 TR_OpaqueClassBlock *containingClass = implArray[i]->containingClass();
                 uint32_t numInterfaces = fej9->numInterfacesImplemented((J9Class *)containingClass);
+
                 maxInterfaces = (numInterfaces > maxInterfaces) ? numInterfaces : maxInterfaces;
-
-                if (trace) {
-                    int32_t len;
-                    char *classSig = TR::Compiler->cls.classSignature_DEPRECATED(comp, containingClass, len, comp->trMemory());
-                    logprintf(trace, comp->log(),
-                        "%s: DEBUG-1 containingClass %p %.*s numInterfaces %d maxInterfaces %d\n", __FUNCTION__,
-                        containingClass, len, classSig, numInterfaces, maxInterfaces);
-                }
-
                 if (maxInterfaces > MAX_ITABLE_ITERATIONS)
                    break;
             }
 
-            returnMaxNoInterfaces = (maxInterfaces > MAX_ITABLE_ITERATIONS) ? MAX_ITABLE_ITERATIONS : maxInterfaces;
+            returnNumOfIterations = (maxInterfaces > MAX_ITABLE_ITERATIONS) ? MAX_ITABLE_ITERATIONS : maxInterfaces;
 
             if (trace) {
                 int32_t len;
                 char *classSig = TR::Compiler->cls.classSignature_DEPRECATED(comp, declaringClass, len, comp->trMemory());
                 logprintf(trace, comp->log(),
-                    "%s: DEBUG-2 declaringClass %p %.*s numImplementers %d maxInterfaces %d returnMaxNoInterfaces %d\n", __FUNCTION__,
-                    declaringClass, len, classSig, numImplementers, maxInterfaces, returnMaxNoInterfaces);
-            }
-
-            if (comp->getOptions()->isAnyVerboseOptionSet()) {
-                TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "%s: declaringClass %p numImplementers %d maxInterfaces %d returnMaxNoInterfaces %d %s\n", __FUNCTION__,
-                    declaringClass, numImplementers, maxInterfaces, returnMaxNoInterfaces, comp->signature());
-            }
-        } else {
-            if (trace) {
-                int32_t len;
-                char *classSig = TR::Compiler->cls.classSignature_DEPRECATED(comp, declaringClass, len, comp->trMemory());
-                logprintf(trace, comp->log(), "%s: DEBUG-3 declaringClass %p %.*s numImplementers %d\n", __FUNCTION__, declaringClass, len, classSig, numImplementers);
+                    "%s: DEBUG-2 declaringClass %p %.*s numImplementers %d maxInterfaces %d returnNumOfIterations %d\n", __FUNCTION__,
+                    declaringClass, len, classSig, numImplementers, maxInterfaces, returnNumOfIterations);
             }
         }
-    } else {
-        if (trace) logprintf(trace, comp->log(), "%s: DEBUG-4 TR_DisableCHOpts 1\n", __FUNCTION__);
     }
 
-    return returnMaxNoInterfaces;
+    return returnNumOfIterations;
 }
 
 void J9::X86::PrivateLinkage::buildInterfaceDispatchUsingLastITable(TR::X86CallSite &site, int32_t numIPicSlots,
@@ -2674,82 +2667,35 @@ void J9::X86::PrivateLinkage::buildInterfaceDispatchUsingLastITable(TR::X86CallS
             interfaceClassReg, cg());
     }
 
-    bool debugDisableITableIteration = false;
-
-    static char *disableITableIterationAbstractFastEngine
-        = feGetEnv("TR_DisableITableIterationAbstractFastEngine");
-    if (disableITableIterationAbstractFastEngine) {
-        if (strstr(comp()->signature(), "AbstractFastEngine.addInstance")) {
-            debugDisableITableIteration = true;
-            if (comp()->getOptions()->isAnyVerboseOptionSet()) {
-                TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "%s: disable iTable iteration %s\n", __FUNCTION__, comp()->signature());
-            }
-        }
-    }
-
-    static char *disableITableIterationEngineDataClass
-        = feGetEnv("TR_DisableITableIterationEngineDataClass");
-    if (disableITableIterationEngineDataClass) {
-        if (strstr(comp()->signature(), "EngineDataClass.poc_ilog_webperso_Segment_addToScore_float")) {
-            debugDisableITableIteration = true;
-            if (comp()->getOptions()->isAnyVerboseOptionSet()) {
-                TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "%s: disable iTable iteration %s\n", __FUNCTION__, comp()->signature());
-            }
-        }
-    }
-
-   static char *disableITableIterationFASTEngine
-      = feGetEnv("TR_DisableITableIterationFASTEngine");
-    if (disableITableIterationFASTEngine) {
-        if (strstr(comp()->signature(), "FASTEngine.execute")) {
-            debugDisableITableIteration = true;
-            if (comp()->getOptions()->isAnyVerboseOptionSet()) {
-                TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "%s: disable iTable iteration %s\n", __FUNCTION__, comp()->signature());
-            }
-        }
-    }
-
     if (comp()->getOption(TR_DisableITableIterationsAfterLastITableCacheCheck)
-        || debugDisableITableIteration
         || (comp()->getOptLevel() <= warm
             && !comp()->getOption(TR_EnableITableIterationsAfterLastITableCacheCheckAtWarm))) {
-        generateLastITableDispatch(callNode, lookupDispatchSnippetLabel, lastITableDispatchLabel, vtableIndexRegDeps, comp(), cg());
+        generateLastITableDispatch(callNode, lookupDispatchSnippetLabel, lastITableDispatchLabel, NULL /* gotoLastITableDispatchLabel */, vtableIndexRegDeps, comp(), cg());
     } else {
-        bool trace = comp()->getOption(TR_TraceCG);
         const uint32_t MAX_ITABLE_ITERATIONS = 4;
 
-        uint32_t iterations = findLikelyMaxNoOfIFsImplementersImplement(site, declaringClass, MAX_ITABLE_ITERATIONS, fej9, comp());
+        uint32_t iterations = determineNumOfITableIterations(site, declaringClass, MAX_ITABLE_ITERATIONS, fej9, comp());
 
-        static char *disableSkipITableIterationForOne = feGetEnv("TR_DisableSkipITableIterationForOne");
+        static char *numITableIterationsAfterLastITableCacheCheck
+            = feGetEnv("TR_NumITableIterationsAfterLastITableCacheCheck");
+        if (numITableIterationsAfterLastITableCacheCheck) {
+            static const int32_t overrideIterations = atoi(numITableIterationsAfterLastITableCacheCheck);
 
-        // Do not iterate the iTable if max number of interfaces implementers implement is one since lastITableCache check likely would be good enough
-        if ((iterations == 1) && (!disableSkipITableIterationForOne)) {
-            generateLastITableDispatch(callNode, lookupDispatchSnippetLabel, lastITableDispatchLabel, vtableIndexRegDeps, comp(), cg());
-            if (trace) {
-                int32_t len;
-                char *classSig = TR::Compiler->cls.classSignature_DEPRECATED(comp(), declaringClass, len, comp()->trMemory());
-                logprintf(trace, comp()->log(), "%s: declaringClass %p %*.s DEBUG-5 iterations == 1\n", __FUNCTION__, declaringClass, len, classSig);
-            }
+            int32_t value = (overrideIterations < 1) ? 1 : overrideIterations;
+            value = (overrideIterations > MAX_ITABLE_ITERATIONS) ? MAX_ITABLE_ITERATIONS : value;
+
+            iterations = static_cast<uint32_t>(value);
+        }
+
+        logprintf(comp()->getOption(TR_TraceCG), comp()->log(), "%s: number of iTable iterations %d\n",
+            __FUNCTION__, iterations);
+
+        // Do not iterate the iTable if the maximum number of interfaces implemented by candidate implementers
+        // is one, since the lastITableCache check is likely sufficient.
+        //
+        if (iterations == 1) {
+            generateLastITableDispatch(callNode, lookupDispatchSnippetLabel, lastITableDispatchLabel, NULL /* gotoLastITableDispatchLabel */, vtableIndexRegDeps, comp(), cg());
         } else {
-
-            //------------
-            static char *numITableIterationsAfterLastITableCacheCheck
-                = feGetEnv("TR_NumITableIterationsAfterLastITableCacheCheck");
-            static const int32_t numITableIterationsAfterLastITableCacheCheckValue
-                = numITableIterationsAfterLastITableCacheCheck ? atoi(numITableIterationsAfterLastITableCacheCheck)
-                                                           : MAX_ITABLE_ITERATIONS;
-
-            iterations = numITableIterationsAfterLastITableCacheCheck ? numITableIterationsAfterLastITableCacheCheckValue
-                                                                      : iterations;
-
-            logprintf(trace, comp()->log(), "%s: Final iterations %d before generating the iTable entry comparison\n",
-                __FUNCTION__, iterations);
-
-            if (comp()->getOptions()->isAnyVerboseOptionSet()) {
-                TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "%s: Final iterations %d %s\n", __FUNCTION__, iterations, comp()->signature());
-            }
-
-            //------------
             TR::LabelSymbol *iterateITableLabel = generateLabelSymbol(cg());
             TR::LabelSymbol *gotoLastITableDispatchLabel = generateLabelSymbol(cg());
 
@@ -2762,7 +2708,7 @@ void J9::X86::PrivateLinkage::buildInterfaceDispatchUsingLastITable(TR::X86CallS
             // will increase the length of the instructions from the previous IPIC slots to the done label.
             // The JNE in IPIC slots will become JNE4 which messes up multiple routines in X86PicBuilder that
             // have an assumption in its offset calculations that the JNE in a IPIC slot is JNE1.
-            //
+
             //------------ start out-of-line instructions
             //
             TR_OutlinedInstructionsGenerator og(iterateITableLabel, callNode, cg());
@@ -2774,17 +2720,7 @@ void J9::X86::PrivateLinkage::buildInterfaceDispatchUsingLastITable(TR::X86CallS
             //
             og.endOutlinedInstructionSequence();
 
-            //----------------------------------------------
-            // This extra JNE to lookupDispatchSnippetLabel is required because routines in X86PicBuilder,
-            // such as resolveIPicClass, expects the last JNE before the done label must jmp to the look up routine.
-            //
-            generateLongLabelInstruction(TR::InstOpCode::JNE4, callNode, lookupDispatchSnippetLabel,
-                cg()); // PICBuilder needs this to have a 4-byte offset
-
-            generateLabelInstruction(TR::InstOpCode::label, callNode, gotoLastITableDispatchLabel, cg());
-            if (comp()->target().is32Bit())
-                generatePaddingInstruction(3, callNode, cg());
-            generateLabelInstruction(TR::InstOpCode::CALLImm4, callNode, lastITableDispatchLabel, vtableIndexRegDeps, cg());
+            generateLastITableDispatch(callNode, lookupDispatchSnippetLabel, lastITableDispatchLabel, gotoLastITableDispatchLabel, vtableIndexRegDeps, comp(), cg());
         }
     }
 
