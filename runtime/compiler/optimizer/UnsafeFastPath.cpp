@@ -789,6 +789,37 @@ int32_t TR_UnsafeFastPath::perform()
                 continue;
             }
 
+#if JAVA_SPEC_VERSION <= 21
+            static char *disableStringCmpsDcmpsArrayCopyFix = feGetEnv("TR_DisableStringCmpsDcmpsArrayCopyFix");
+
+            if ((type != TR::NoType)
+                && !disableStringCmpsDcmpsArrayCopyFix
+                && ((symbol->getRecognizedMethod() == TR::com_ibm_jit_JITHelpers_putCharInArrayByIndex)
+                   || (symbol->getRecognizedMethod() == TR::com_ibm_jit_JITHelpers_putByteInArrayByIndex))) {
+                bool isStringCompressedDecompressedArrayCopy = false;
+                TR::RecognizedMethod recognizedMethod = comp()->getOwningMethodSymbol(node->getOwningMethod()) ? comp()->getOwningMethodSymbol(node->getOwningMethod())->getRecognizedMethod() : TR::unknownMethod;
+                switch (recognizedMethod) {
+                    case TR::java_lang_String_compressedArrayCopy_BIBII:
+                    case TR::java_lang_String_compressedArrayCopy_BICII:
+                    case TR::java_lang_String_compressedArrayCopy_CIBII:
+                    case TR::java_lang_String_compressedArrayCopy_CICII:
+                    case TR::java_lang_String_decompressedArrayCopy_BIBII:
+                    case TR::java_lang_String_decompressedArrayCopy_BICII:
+                    case TR::java_lang_String_decompressedArrayCopy_CIBII:
+                    case TR::java_lang_String_decompressedArrayCopy_CICII:
+                        isStringCompressedDecompressedArrayCopy = true;
+                        break;
+                    default:
+                        break;
+                }
+                if (isStringCompressedDecompressedArrayCopy) {
+                    logprintf(trace(), log, "%s recognizedMethod %d isStringCompressedDecompressedArrayCopy 1, skip unsafeFastPath for node [" POINTER_PRINTF_FORMAT "] n%dn\n",
+                        __FUNCTION__, recognizedMethod, node, node->getGlobalIndex());
+                    continue;
+                }
+            }
+#endif // JAVA_SPEC_VERSION <= 21
+
             if (type != TR::NoType
                 && performTransformation(comp(),
                     "%s Found unsafe/JITHelpers calls, turning node [" POINTER_PRINTF_FORMAT "] into a load/store\n",
