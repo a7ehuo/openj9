@@ -84,6 +84,8 @@ public:
      */
     bool isValueTypeArrayFlatteningEnabled();
 
+    bool isCompactInstanceFieldEnabled();
+
     int32_t sizeofReferenceField();
     bool isHotReferenceFieldRequired();
     bool isOffHeapAllocationEnabled();

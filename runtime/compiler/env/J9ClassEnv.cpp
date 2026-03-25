@@ -504,11 +504,24 @@ static void addEntryForFieldImpl(TR_VMField *field, TR::TypeLayoutBuilder &tlb, 
         char *signature = field->signature;
         char charSignature = *signature;
         TR::DataType dataType;
+        bool compactInstanceFieldEnabled = TR::Compiler->om.isCompactInstanceFieldEnabled() && !comp->getOption(TR_DisableCompactInstanceField);
         switch (charSignature) {
-            case 'Z':
-            case 'B':
-            case 'C':
-            case 'S':
+            case 'Z': {
+                dataType = compactInstanceFieldEnabled ? TR::Int8 : TR::Int32;
+                break;
+            }
+            case 'B': {
+                dataType = compactInstanceFieldEnabled ? TR::Int8 : TR::Int32;
+                break;
+            }
+            case 'C': {
+                dataType = compactInstanceFieldEnabled ? TR::Int16 : TR::Int32;
+                break;
+            }
+            case 'S': {
+                dataType = compactInstanceFieldEnabled ? TR::Int16 : TR::Int32;
+                break;
+            }
             case 'I': {
                 dataType = TR::Int32;
                 break;
@@ -544,8 +557,9 @@ static void addEntryForFieldImpl(TR_VMField *field, TR::TypeLayoutBuilder &tlb, 
         memcpy(fieldSignature, signature, sigLen);
         fieldSignature[sigLen] = '\0';
 
-        logprintf(trace, log, "type layout definingClass %p field: %s signature: %s field offset: %d offsetBase %d\n",
-            definingClass, fieldName, fieldSignature, field->offset, offsetBase);
+        logprintf(trace, log,
+            "type layout definingClass %p field: %s signature: %s dataType: %s fieldOffset: %d offsetBase: %d\n",
+            definingClass, fieldName, fieldSignature, TR::DataType::getName(dataType), field->offset, offsetBase);
         tlb.add(TR::TypeLayoutEntry(dataType, offset, fieldName, isVolatile, isPrivate, isFinal, isFieldNullRestricted,
             fieldSignature));
     }

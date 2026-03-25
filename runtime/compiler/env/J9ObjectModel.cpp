@@ -162,6 +162,15 @@ bool J9::ObjectModel::isValueTypeArrayFlatteningEnabled()
         return false;
 }
 
+bool J9::ObjectModel::isCompactInstanceFieldEnabled()
+{
+#if defined(J9VM_OPT_VALHALLA_COMPACT_LAYOUTS)
+    return true;
+#else /* defined(J9VM_OPT_VALHALLA_COMPACT_LAYOUTS) */
+    return false;
+#endif /* defined(J9VM_OPT_VALHALLA_COMPACT_LAYOUTS) */
+}
+
 int32_t J9::ObjectModel::sizeofReferenceField()
 {
     if (compressObjectReferences())

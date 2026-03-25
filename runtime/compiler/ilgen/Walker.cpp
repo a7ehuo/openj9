@@ -35,6 +35,7 @@
 #include "env/jittypes.h"
 #include "env/VMAccessCriticalSection.hpp"
 #include "env/VerboseLog.hpp"
+#include "env/VerboseLog.hpp"
 #include "exceptions/AOTFailure.hpp"
 #include "exceptions/FSDFailure.hpp"
 #include "exceptions/RuntimeFailure.hpp"
@@ -5356,6 +5357,91 @@ void TR_J9ByteCodeIlGenerator::loadInstance(int32_t cpIndex)
     loadInstance(symRef);
 }
 
+static TR::Node *signExtendToInt32(TR::Node *n)
+{
+    TR::DataType dt = n->getDataType();
+
+    if (dt == TR::Int8)
+        return TR::Node::create(TR::b2i, 1, n);
+
+    if (dt == TR::Int16)
+        return TR::Node::create(TR::s2i, 1, n);
+
+    if (dt == TR::Int32)
+        return n;
+
+    TR_ASSERT_FATAL(false, "unsupported data type %s\n", TR::DataType::getName(dt));
+    return n;
+}
+
+static TR::Node *canonicalizeBoolToZeroOne(TR::Node *n)
+{
+    n = TR::Node::create(TR::icmpne, 2, n, TR::Node::create(TR::iconst, 0, 0));
+    if (n->getDataType() != TR::Int32)
+        n = TR::Node::create(TR::b2i, 1, n);
+    return n;
+}
+
+TR::Node *TR_J9ByteCodeIlGenerator::widenIntLoadForCompactFieldIfRequired(TR::Node *value, TR::SymbolReference *symRef,
+    bool isFieldBoolean, bool isFieldChar)
+{
+    TR::DataType fieldType = symRef->getSymbol()->getDataType();
+    TR::DataType valueNodeOriginalDataType = value->getDataType();
+
+    logprintf(comp()->getOption(TR_TraceILGen), comp()->log(),
+        "%s: DEBUG fieldType %s value %p n%dn getDataType %s isBoolean %d %d isChar %d %d\n", __FUNCTION__,
+        TR::DataType::getName(fieldType), value, value->getGlobalIndex(),
+        TR::DataType::getName(valueNodeOriginalDataType), symRefTab()->isFieldTypeBool(symRef), isFieldBoolean,
+        symRefTab()->isFieldTypeChar(symRef), isFieldChar);
+    if (TR::Options::isAnyVerboseOptionSet())
+        TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "%s: DEBUG fieldType %s value->getDataType %s %s\n", __FUNCTION__,
+            TR::DataType::getName(fieldType), TR::DataType::getName(value->getDataType()), comp()->signature());
+
+    switch (fieldType) {
+        case TR::Int8: {
+            value = signExtendToInt32(value);
+
+            if (symRefTab()->isFieldTypeBool(symRef) || isFieldBoolean)
+                return canonicalizeBoolToZeroOne(value);
+
+            // Enforce byte semantics by round-tripping low 8 bits to guarantee sign-extension of the low byte.
+            if (valueNodeOriginalDataType != TR::Int8) {
+                value = TR::Node::create(TR::i2b, 1, value);
+                value = TR::Node::create(TR::b2i, 1, value);
+            }
+            break;
+        }
+        case TR::Int16: {
+            if (valueNodeOriginalDataType == TR::Int8) {
+                TR_ASSERT_FATAL(false, "A TR::Int16 field should not be loaded as 8 bits\n");
+            }
+
+            if (symRefTab()->isFieldTypeChar(symRef) || isFieldChar) {
+                // char is unsigned 16-bit -> zero-extend to Int32.
+                if (valueNodeOriginalDataType == TR::Int16)
+                    return TR::Node::create(TR::su2i, 1, value);
+
+                TR_ASSERT_FATAL(valueNodeOriginalDataType == TR::Int32, "char widen path expects Int32 here, got %s",
+                    TR::DataType::getName(valueNodeOriginalDataType));
+
+                value = TR::Node::create(TR::iand, 2, value, TR::Node::create(TR::iconst, 0, 0xffff));
+            } else {
+                value = signExtendToInt32(value);
+
+                // Enforce correct sign-extension of low 16 bits: s2i(i2s(value))
+                if (valueNodeOriginalDataType != TR::Int16) {
+                    value = TR::Node::create(TR::i2s, 1, value);
+                    value = TR::Node::create(TR::s2i, 1, value);
+                }
+            }
+            break;
+        }
+        default:
+            break;
+    }
+    return value;
+}
+
 void TR_J9ByteCodeIlGenerator::loadInstance(TR::SymbolReference *symRef)
 {
     TR::Symbol *symbol = symRef->getSymbol();
@@ -5368,8 +5454,20 @@ void TR_J9ByteCodeIlGenerator::loadInstance(TR::SymbolReference *symRef)
     if (pushRequiredConst(&requiredKoi))
         return;
 
-    TR::ILOpCodes op = _generateReadBarriersForFieldWatch ? comp()->il.opCodeForIndirectReadBarrier(type)
-                                                          : comp()->il.opCodeForIndirectLoad(type);
+    TR::ILOpCodes op;
+    bool compactInstanceField = type.isIntegral() && TR::Compiler->om.isCompactInstanceFieldEnabled() && !comp()->getOption(TR_DisableCompactInstanceField);
+
+    if (comp()->getOptions()->isAnyVerboseOptionSet())
+        TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "%s: DEBUG compactInstanceField %d isCompactInstanceFieldEnabled %d %s\n", __FUNCTION__,
+            compactInstanceField, TR::Compiler->om.isCompactInstanceFieldEnabled(), comp()->signature());
+
+    if (compactInstanceField)
+        op = _generateReadBarriersForFieldWatch ? comp()->il.opCodeForIndirectCompactReadBarrier(type)
+                                                : comp()->il.opCodeForIndirectCompactLoad(type);
+    else
+        op = _generateReadBarriersForFieldWatch ? comp()->il.opCodeForIndirectReadBarrier(type)
+                                                : comp()->il.opCodeForIndirectLoad(type);
+
     dummyLoad = load = TR::Node::createWithSymRef(op, 1, 1, address, symRef);
 
     if (symRef->isUnresolved()) {
@@ -5418,6 +5516,12 @@ void TR_J9ByteCodeIlGenerator::loadInstance(TR::SymbolReference *symRef)
             && nodeToRemove) {
             nodeToRemove->recursivelyDecReferenceCount();
         }
+    }
+
+    if (compactInstanceField) {
+        dummyLoad = widenIntLoadForCompactFieldIfRequired(dummyLoad, symRef);
+        if (treeTopNode)
+            genTreeTop(dummyLoad);
     }
 
     push(dummyLoad);
@@ -5836,10 +5940,14 @@ void TR_J9ByteCodeIlGenerator::loadFromCP(TR::DataType type, int32_t cpIndex)
 {
     OMR::Logger *log = comp()->log();
     bool trace = comp()->getOption(TR_TraceILGen);
+    logprintf(comp()->getOption(TR_TraceILGen), comp()->log(), "%s: DEBUG type %s cpIndex %d\n", __FUNCTION__,
+        TR::DataType::getName(type), cpIndex);
 
     static char *floatInCP = feGetEnv("TR_FloatInCP");
     if (type == TR::NoType)
         type = method()->getLDCType(cpIndex);
+    logprintf(comp()->getOption(TR_TraceILGen), comp()->log(), "%s: DEBUG type %s\n", __FUNCTION__,
+        TR::DataType::getName(type));
     switch (type) {
         case TR::Int32:
             loadConstant(TR::iconst, (int32_t)method()->intConstant(cpIndex));
@@ -5873,6 +5981,9 @@ void TR_J9ByteCodeIlGenerator::loadFromCP(TR::DataType type, int32_t cpIndex)
                 char *returnTypeUtf8Data = (char *)J9UTF8_DATA(returnTypeUtf8);
                 bool isCondyPrimitive = (1 == returnTypeUtf8Length);
 
+                logprintf(comp()->getOption(TR_TraceILGen), comp()->log(),
+                    "%s: DEBUG isCondyPrimitive %d isCondyUnresolved %d\n", __FUNCTION__, isCondyPrimitive,
+                    isCondyUnresolved);
                 // Use aconst for null object
                 if (!isCondyPrimitive && !isCondyUnresolved) {
                     TR::VMAccessCriticalSection condyCriticalSection(comp()->fej9());
@@ -5977,6 +6088,8 @@ void TR_J9ByteCodeIlGenerator::loadFromCP(TR::DataType type, int32_t cpIndex)
                     }
                     // Generate constant for resolved primitive condy.
                     if (!isCondyUnresolved) {
+                        logprintf(comp()->getOption(TR_TraceILGen), comp()->log(), "%s: DEBUG valueOffset %d\n",
+                            __FUNCTION__, valueOffset);
                         TR::VMAccessCriticalSection primitiveCondyCriticalSection(comp()->fej9(),
                             TR::VMAccessCriticalSection::tryToAcquireVMAccess, comp());
                         if (primitiveCondyCriticalSection.hasVMAccess()) {
@@ -5986,13 +6099,43 @@ void TR_J9ByteCodeIlGenerator::loadFromCP(TR::DataType type, int32_t cpIndex)
                             TR_ASSERT(obj,
                                 "Resolved primitive Constant Dynamic-type CP entry %d must have autobox object",
                                 cpIndex);
+                            bool compactInstanceFieldEnabled = TR::Compiler->om.isCompactInstanceFieldEnabled() && !comp()->getOption(TR_DisableCompactInstanceField);
                             switch (returnTypeUtf8Data[0]) {
                                 case 'I':
-                                case 'Z':
-                                case 'C':
-                                case 'S':
-                                case 'B':
                                     loadConstant(TR::iconst, *(int32_t *)(obj + valueOffset));
+                                    break;
+                                case 'Z':
+                                    if (compactInstanceFieldEnabled) {
+                                        uint8_t raw;
+                                        memcpy(&raw, (void *)(obj + valueOffset), sizeof(raw));
+                                        // Canonicalize: any non-zero is true, push 0/1.
+                                        loadConstant(TR::iconst, raw ? 1 : 0);
+                                    } else
+                                        loadConstant(TR::iconst, *(int32_t *)(obj + valueOffset));
+                                    break;
+                                case 'C':
+                                    if (compactInstanceFieldEnabled) {
+                                        uint16_t raw;
+                                        memcpy(&raw, (void *)(obj + valueOffset), sizeof(raw));
+                                        loadConstant(TR::iconst, (int32_t)raw); // zero-extend
+                                    } else
+                                        loadConstant(TR::iconst, *(int32_t *)(obj + valueOffset));
+                                    break;
+                                case 'S':
+                                    if (compactInstanceFieldEnabled) {
+                                        int16_t raw;
+                                        memcpy(&raw, (void *)(obj + valueOffset), sizeof(raw));
+                                        loadConstant(TR::iconst, (int32_t)raw); // sign-extend
+                                    } else
+                                        loadConstant(TR::iconst, *(int32_t *)(obj + valueOffset));
+                                    break;
+                                case 'B':
+                                    if (compactInstanceFieldEnabled) {
+                                        int8_t raw;
+                                        memcpy(&raw, (void *)(obj + valueOffset), sizeof(raw));
+                                        loadConstant(TR::iconst, (int32_t)raw); // sign-extend
+                                    } else
+                                        loadConstant(TR::iconst, *(int32_t *)(obj + valueOffset));
                                     break;
                                 case 'J':
                                     loadConstant(TR::lconst, *(int64_t *)(obj + valueOffset));
@@ -6021,10 +6164,13 @@ void TR_J9ByteCodeIlGenerator::loadFromCP(TR::DataType type, int32_t cpIndex)
                     symRefTab()->findOrCreateConstantDynamicSymbol(_methodSymbol, cpIndex, symbolTypeSig,
                         symbolTypeSigLength, isCondyPrimitive));
                 // Condy is primitive type, emit indirect load of the value field from the autobox object.
+                bool isFieldBoolean = false;
+                bool isFieldChar = false;
                 if (isCondyPrimitive) {
                     const char *recogFieldName = NULL;
                     TR::Symbol::RecognizedField valueRecogField = TR::Symbol::UnknownField;
                     TR::DataType dt = TR::NoType;
+                    bool compactInstanceFieldEnabled = TR::Compiler->om.isCompactInstanceFieldEnabled() && !comp()->getOption(TR_DisableCompactInstanceField);
                     switch (returnTypeUtf8Data[0]) {
                         case 'I':
                             recogFieldName = "java/lang/Integer.value I";
@@ -6055,6 +6201,7 @@ void TR_J9ByteCodeIlGenerator::loadFromCP(TR::DataType type, int32_t cpIndex)
                             recogFieldName = "java/lang/Character.value C";
                             valueRecogField = TR::Symbol::Java_lang_Character_value;
                             dt = TR::Int16;
+                            isFieldChar = true;
                             break;
                         case 'S':
                             recogFieldName = "java/lang/Short.value S";
@@ -6064,7 +6211,8 @@ void TR_J9ByteCodeIlGenerator::loadFromCP(TR::DataType type, int32_t cpIndex)
                         case 'Z':
                             recogFieldName = "java/lang/Boolean.value Z";
                             valueRecogField = TR::Symbol::Java_lang_Boolean_value;
-                            dt = TR::Int32;
+                            dt = compactInstanceFieldEnabled ? TR::Int8 : TR::Int32;
+                            isFieldBoolean = true;
                             break;
                         default:
                             TR_ASSERT_FATAL(false, "Unrecognized primitive constant dynamic type signature");
@@ -6072,8 +6220,27 @@ void TR_J9ByteCodeIlGenerator::loadFromCP(TR::DataType type, int32_t cpIndex)
                     }
                     TR::SymbolReference *valueSymRef = comp()->getSymRefTab()->findOrFabricateShadowSymbol(
                         _methodSymbol, valueRecogField, dt, valueOffset, false, true, true, recogFieldName);
-                    TR::Node *primitiveValueNode
-                        = TR::Node::createWithSymRef(comp()->il.opCodeForIndirectLoad(dt), 1, 1, pop(), valueSymRef);
+
+                    TR::Node *primitiveValueNode = NULL;
+                    if (dt.isIntegral() && compactInstanceFieldEnabled) {
+                        logprintf(comp()->getOption(TR_TraceILGen), comp()->log(),
+                            "%s: DEBUG dt %s isFieldBoolean %d isFieldChar %d recogFieldName %s\n", __FUNCTION__,
+                            TR::DataType::getName(dt), isFieldBoolean, isFieldChar, recogFieldName);
+                        if (TR::Options::isAnyVerboseOptionSet())
+                            TR_VerboseLog::writeLineLocked(TR_Vlog_INFO,
+                                "%s: DEBUG dt %s isFieldBoolean %d isFieldChar %d recogFieldName %s %s\n", __FUNCTION__,
+                                TR::DataType::getName(dt), isFieldBoolean, isFieldChar, recogFieldName,
+                                comp()->signature());
+
+                        primitiveValueNode = TR::Node::createWithSymRef(comp()->il.opCodeForIndirectCompactLoad(dt), 1,
+                            1, pop(), valueSymRef);
+                        primitiveValueNode = widenIntLoadForCompactFieldIfRequired(primitiveValueNode, valueSymRef,
+                            isFieldBoolean, isFieldChar);
+                    } else {
+                        primitiveValueNode = TR::Node::createWithSymRef(comp()->il.opCodeForIndirectLoad(dt), 1, 1,
+                            pop(), valueSymRef);
+                    }
+
                     primitiveValueNode->copyByteCodeInfo(loadObjNode);
                     push(primitiveValueNode);
                 }
@@ -6799,6 +6966,36 @@ void TR_J9ByteCodeIlGenerator::storeInstance(int32_t cpIndex)
     storeInstance(symRef);
 }
 
+TR::Node *TR_J9ByteCodeIlGenerator::narrowIntStoreForCompactFieldIfRequired(TR::Node *value,
+    TR::SymbolReference *symRef, bool isFieldBoolean)
+{
+    TR::DataType fieldType = symRef->getSymbol()->getDataType();
+
+    logprintf(comp()->getOption(TR_TraceILGen), comp()->log(),
+        "%s: DEBUG fieldType %s value %p n%dn getDataType %s isBoolean %d %d\n", __FUNCTION__,
+        TR::DataType::getName(fieldType), value, value->getGlobalIndex(), TR::DataType::getName(value->getDataType()),
+        symRefTab()->isFieldTypeBool(symRef), isFieldBoolean);
+    if (TR::Options::isAnyVerboseOptionSet())
+        TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "%s: DEBUG fieldType %s value->getDataType %s %s\n", __FUNCTION__,
+            TR::DataType::getName(fieldType), TR::DataType::getName(value->getDataType()), comp()->signature());
+
+    switch (fieldType) {
+        case TR::Int8:
+            value = signExtendToInt32(value);
+            if (symRefTab()->isFieldTypeBool(symRef) || isFieldBoolean)
+                value = canonicalizeBoolToZeroOne(value);
+            value = TR::Node::create(TR::i2b, 1, value);
+            break;
+        case TR::Int16:
+            value = signExtendToInt32(value);
+            value = TR::Node::create(TR::i2s, 1, value);
+            break;
+        default:
+            break;
+    }
+    return value;
+}
+
 TR::Node *TR_J9ByteCodeIlGenerator::narrowIntStoreIfRequired(TR::Node *value, TR::SymbolReference *symRef)
 {
     TR::DataType type = symRef->getSymbol()->getDataType();
@@ -6846,14 +7043,33 @@ void TR_J9ByteCodeIlGenerator::storeInstance(TR::SymbolReference *symRef)
 
     // code to handle volatiles moved to CodeGenPrep
     //
-    TR::Node *node;
-    if ((type == TR::Address && _generateWriteBarriersForGC) || _generateWriteBarriersForFieldWatch) {
-        node = TR::Node::createWithSymRef(comp()->il.opCodeForIndirectWriteBarrier(type), 3, 3, addressNode, value,
-            parentObject, symRef);
+    TR::Node *node = NULL;
+    bool compactInstanceField = type.isIntegral() && TR::Compiler->om.isCompactInstanceFieldEnabled() && !comp()->getOption(TR_DisableCompactInstanceField);
+
+    if (comp()->getOptions()->isAnyVerboseOptionSet())
+        TR_VerboseLog::writeLineLocked(TR_Vlog_INFO, "%s: DEBUG compactInstanceField %d isCompactInstanceFieldEnabled %d %s\n", __FUNCTION__,
+            compactInstanceField, TR::Compiler->om.isCompactInstanceFieldEnabled(), comp()->signature());
+
+
+    if (compactInstanceField) {
+        value = narrowIntStoreForCompactFieldIfRequired(value, symRef);
+        if (_generateWriteBarriersForFieldWatch) {
+            node = TR::Node::createWithSymRef(comp()->il.opCodeForIndirectCompactWriteBarrier(type), 3, 3, addressNode,
+                value, parentObject, symRef);
+        } else {
+            node = TR::Node::createWithSymRef(comp()->il.opCodeForIndirectCompactStore(type), 2, 2, addressNode, value,
+                symRef);
+        }
     } else {
-        if (type.isIntegral())
-            value = narrowIntStoreIfRequired(value, symRef);
-        node = TR::Node::createWithSymRef(comp()->il.opCodeForIndirectStore(type), 2, 2, addressNode, value, symRef);
+        if ((type == TR::Address && _generateWriteBarriersForGC) || _generateWriteBarriersForFieldWatch) {
+            node = TR::Node::createWithSymRef(comp()->il.opCodeForIndirectWriteBarrier(type), 3, 3, addressNode, value,
+                parentObject, symRef);
+        } else {
+            if (type.isIntegral())
+                value = narrowIntStoreIfRequired(value, symRef);
+            node
+                = TR::Node::createWithSymRef(comp()->il.opCodeForIndirectStore(type), 2, 2, addressNode, value, symRef);
+        }
     }
 
     if (symbol->isPrivate() && _classInfo && comp()->getNeedsClassLookahead()) {
